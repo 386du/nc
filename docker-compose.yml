@@ -6,8 +6,8 @@ services:
     image: qq-farm-bot:latest
     container_name: qq-farm-bot-new
     restart: unless-stopped
-    ports:
-      - "${PORT:-3338}:3338"
+    # 用 host 网络,让容器出口 IP = 宿主机 IP(跟 386du 项目一致,避免应用宝 API IP 白名单问题)
+    network_mode: host
     volumes:
       - qq-farm-new-data:/app/core/data
       - qq-farm-new-logs:/app/core/data/logs
