@@ -340,7 +340,7 @@ function getItemMutantTypes(item, id) {
                         const nameIdx = Math.min(mtv - 1, mtNames.length - 1);
                         itemMutantTypes.push(mtNames[nameIdx]);
                     } else if (mtv > 0) {
-                        itemMutantTypes.push('mutant_' + mtv);
+                        itemMutantTypes.push(`mutant_${  mtv}`);
                     }
                 }
             }
@@ -493,16 +493,16 @@ async function sellAllFruits() {
             const id = toNum(item.id);
             const count = toNum(item.count);
             // Skip decorative/quality mutant items (月华/塔塔/荷华/黄金) - keep in bag
-            var hasQualityMutant = false;
+            let hasQualityMutant = false;
             if (item.mutant_types && item.mutant_types.length > 0) {
                 try {
-                    var mtMap = getAllMutantTypes();
+                    const mtMap = getAllMutantTypes();
                     if (mtMap) {
-                        var mtNames = Object.keys(mtMap);
-                        for (var smi = 0; smi < item.mutant_types.length; smi++) {
-                            var smId = Number(item.mutant_types[smi]);
+                        const mtNames = Object.keys(mtMap);
+                        for (let smi = 0; smi < item.mutant_types.length; smi++) {
+                            const smId = Number(item.mutant_types[smi]);
                             if (smId > 0 && smId <= mtNames.length) {
-                                var cfg = mtMap[mtNames[smId - 1]];
+                                const cfg = mtMap[mtNames[smId - 1]];
                                 if (cfg && (cfg.quality === '天工' || cfg.quality === '珍品' || cfg.quality === '稀有')) {
                                     hasQualityMutant = true;
                                     log('仓库', `跳过变异物品: ${getFruitName(id)} x${count} (${mtNames[smId - 1]})`, {
@@ -510,7 +510,7 @@ async function sellAllFruits() {
                                         event: 'skip_mutant_item',
                                         result: 'kept',
                                         itemId: id,
-                                        count: count,
+                                        count,
                                     });
                                     break;
                                 }
@@ -521,7 +521,7 @@ async function sellAllFruits() {
             }
             if (!hasQualityMutant && isSellableItem(item) && count > 0) {
                 toSell.push(item);
-                var suffix = (item.mutant_types && item.mutant_types.length > 0) ? '(变异)' : '';
+                const suffix = (item.mutant_types && item.mutant_types.length > 0) ? '(变异)' : '';
                 names.push(`${getFruitName(id)}x${count}${suffix}`);
             }
         }

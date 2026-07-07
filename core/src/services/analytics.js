@@ -127,7 +127,7 @@ function getPlantRankings(sortBy = 'exp') {
             // 使用等级或变异标记做区分
             const lv = results[i].level;
             if (results[i]._isMutant) {
-                results[i].name = name + ' ★变异'; // ★变异
+                results[i].name = `${name  } ★变异`; // ★变异
             } else {
                 results[i].name = name; // 基础版保持原名
             }

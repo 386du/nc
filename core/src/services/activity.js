@@ -1,4 +1,4 @@
-﻿/*
+/*
 
 /**
  * 青酿换万金 - 酿造
@@ -158,7 +158,7 @@ async function sellQingniangBrew(options = {}) {
     }
     const rsp = reply && reply.qingmei_sell ? reply.qingmei_sell : {};
     // 无条件保存卖出的实际金币到文件
-    if (reply && reply.activity) { var _sAct = normalizeActivityData(reply.activity); if (_sAct && _sAct.qingmei) { _latestQingmeiState = _sAct.qingmei; _latestBrewGold = Math.max(0, toNum(rsp && rsp.gold)); } }
+    if (reply && reply.activity) { const _sAct = normalizeActivityData(reply.activity); if (_sAct && _sAct.qingmei) { _latestQingmeiState = _sAct.qingmei; _latestBrewGold = Math.max(0, toNum(rsp && rsp.gold)); } }
     savePersistedBrewGold(Math.max(0, toNum(rsp && rsp.gold)));
     const award = rsp && rsp.award ? normalizeRewardItem(rsp.award) : normalizeRewardItem({ id: GOLD_ITEM_ID, count: toNum(rsp && rsp.gold) });
     return {
@@ -178,7 +178,7 @@ async function shareSellQingniangBrew(options = {}) {
     try {
         await reportShare();
     } catch (e) {
-        log('活动', '分享上报失败（分享卖出仍继续）: ' + (e.message || e));
+        log('活动', `分享上报失败（分享卖出仍继续）: ${  e.message || e}`);
     }
     const result = await sellQingniangBrew({ ...options, sellType: 2 });
     return {
@@ -244,25 +244,25 @@ let _latestQingmeiState = null;
 let _latestBrewGold = 0;
 
 function getBrewGoldFilePath() {
-    var dataDir = process.env.FARM_DATA_DIR || path.join(__dirname, '../../data');
+    const dataDir = process.env.FARM_DATA_DIR || path.join(__dirname, '../../data');
     return path.join(dataDir, 'latest-qingniang-gold.json');
 }
 
 function loadPersistedBrewGold() {
     try {
-        var fp = getBrewGoldFilePath();
+        const fp = getBrewGoldFilePath();
         if (!fs.existsSync(fp)) return 0;
-        var raw = fs.readFileSync(fp, 'utf8');
+        const raw = fs.readFileSync(fp, 'utf8');
         if (!raw || !raw.trim()) return 0;
-        var d = JSON.parse(raw);
+        const d = JSON.parse(raw);
         return Math.max(0, Number(d.gold) || 0);
     } catch (e) { return 0; }
 }
 
 function savePersistedBrewGold(gold) {
     try {
-        var fp = getBrewGoldFilePath();
-        var dir = path.dirname(fp);
+        const fp = getBrewGoldFilePath();
+        const dir = path.dirname(fp);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(fp, JSON.stringify({ gold: Math.max(0, Number(gold) || 0), updatedAt: Date.now() }), 'utf8');
     } catch (e) { /* ignore */ }
@@ -957,7 +957,7 @@ async function getActivityLiveState(options = {}) {
         if (_latestQingmeiState && live.activity && live.activity.drawActivity) {
             live.activity.drawActivity.qingmei = _latestQingmeiState;
             // 用实际酿造累计金币覆盖，优先文件持久化的值（重启后也能恢复）
-            var _persistedGold = loadPersistedBrewGold();
+            const _persistedGold = loadPersistedBrewGold();
             if (_persistedGold > 0) live.activity.drawActivity.qingmei.brewedGold = _persistedGold;
             else if (_latestBrewGold > 0) live.activity.drawActivity.qingmei.brewedGold = _latestBrewGold;
         }

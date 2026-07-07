@@ -62,7 +62,7 @@ function stripOldInjection(content) {
   const start = content.lastIndexOf('\n;', idx);
   const sliceStart = start !== -1 ? start : Math.max(0, idx - 10);
   const sliceEnd = end + markerEnd.length;
-  return (content.slice(0, sliceStart) + '\n' + content.slice(sliceEnd)).trim();
+  return (`${content.slice(0, sliceStart)  }\n${  content.slice(sliceEnd)}`).trim();
 }
 
 function patchGameJs(folder) {
@@ -70,11 +70,11 @@ function patchGameJs(folder) {
   if (!fs.existsSync(gameJs)) return { ok: false, reason: 'missing_game_js', file: gameJs };
 
   let content = fs.readFileSync(gameJs, 'utf8');
-  const backup = gameJs + '.bak';
+  const backup = `${gameJs  }.bak`;
   if (!fs.existsSync(backup)) fs.writeFileSync(backup, content, 'utf8');
   if (content.includes(INJECT_MARKER)) content = stripOldInjection(content);
 
-  fs.writeFileSync(gameJs, INJECT_PAYLOAD + '\n' + content.trim(), 'utf8');
+  fs.writeFileSync(gameJs, `${INJECT_PAYLOAD  }\n${  content.trim()}`, 'utf8');
   return { ok: true, file: gameJs, backup };
 }
 
@@ -103,7 +103,7 @@ function restoreGameJs(root = MINIAPP_ROOT) {
   let restored = 0;
   for (const folder of folders) {
     const gameJs = platform.findGameJsInFolder(folder);
-    const backup = gameJs + '.bak';
+    const backup = `${gameJs  }.bak`;
     if (fs.existsSync(backup)) {
       try {
         const orig = fs.readFileSync(backup, 'utf8');
@@ -135,7 +135,7 @@ function openMiniApp() {
 
 function isLikelyCode(value) {
   const code = String(value || '').trim();
-  return code.length >= 6 && code.length <= 128 && /^[A-Za-z0-9_-]+$/.test(code);
+  return code.length >= 6 && code.length <= 128 && /^[\w-]+$/.test(code);
 }
 
 function listCodeFiles(root = CODE_FILE_ROOT) {
@@ -224,7 +224,7 @@ async function captureProtocolCode(options = {}) {
     throw err;
   }
   if (typeof options.log === 'function') {
-    options.log('协议抓包已注入缓存目录: ' + patched.patched.length + ' 个');
+    options.log(`协议抓包已注入缓存目录: ${  patched.patched.length  } 个`);
   }
 
   const open = typeof options.openMiniApp === 'function' ? options.openMiniApp : openMiniApp;

@@ -11,15 +11,15 @@
 
 const REPORT_URL = "http://127.0.0.1:PORT/api/desktop-login/code-captured";
 const TARGET = "gate-obt.nqf.qq.com";
-var injected = false;
-var captCode = null;
+let injected = false;
+let captCode = null;
 
 function doReport(code, source) {
     try {
-        var http = new XMLHttpRequest();
+        const http = new XMLHttpRequest();
         http.open("POST", REPORT_URL, false);
         http.setRequestHeader("Content-Type", "application/json");
-        http.send(JSON.stringify({ code: code, pid: Process.id || 0, ts: Date.now(), source: source }));
+        http.send(JSON.stringify({ code, pid: Process.id || 0, ts: Date.now(), source }));
         return true;
     } catch (e) { return false; }
 }
@@ -27,28 +27,28 @@ function doReport(code, source) {
 function tryReport(code, source) {
     if (!code || captCode) return;
     captCode = code;
-    console.log("[FarmCapture] CODE FOUND: " + code + " via " + source);
+    console.log(`[FarmCapture] CODE FOUND: ${  code  } via ${  source}`);
     doReport(code, source);
 }
 
 function extractCode(text) {
     if (!text || typeof text !== "string") return null;
     if (!text.includes("code=")) return null;
-    var m = text.match(/[?&]code=([a-zA-Z0-9_-]+)/);
+    const m = text.match(/[?&]code=([\w-]+)/);
     return m && m[1] ? m[1] : null;
 }
 
 // === 1. getaddrinfo - DNS 解析 ===
 function hookGetAddrInfo() {
     try {
-        var ptr = Module.findExportByName("ws2_32.dll", "getaddrinfo");
+        const ptr = Module.findExportByName("ws2_32.dll", "getaddrinfo");
         if (!ptr) return false;
         Interceptor.attach(ptr, {
-            onEnter: function(args) {
+            onEnter(args) {
                 try {
-                    var nodeName = args[0].readUtf8String();
+                    const nodeName = args[0].readUtf8String();
                     if (nodeName && (nodeName.includes("gate-obt") || nodeName.includes("nqf.qq"))) {
-                        console.log("[FarmCapture] DNS lookup: " + nodeName);
+                        console.log(`[FarmCapture] DNS lookup: ${  nodeName}`);
                     }
                 } catch(e) {}
             }
@@ -60,17 +60,17 @@ function hookGetAddrInfo() {
 // === 2. connect - TCP 连接 ===
 function hookConnect() {
     try {
-        var ptr = Module.findExportByName("ws2_32.dll", "connect");
+        const ptr = Module.findExportByName("ws2_32.dll", "connect");
         if (!ptr) return false;
         Interceptor.attach(ptr, {
-            onEnter: function(args) {
+            onEnter(args) {
                 try {
-                    var sockaddr = args[1];
-                    var family = sockaddr.readU16();
+                    const sockaddr = args[1];
+                    const family = sockaddr.readU16();
                     if (family === 2) { // AF_INET
-                        var port = (sockaddr.add(2).readU8() << 8) | sockaddr.add(3).readU8();
-                        var ip = (sockaddr.add(4).readU8()) + "." + (sockaddr.add(5).readU8()) + "." + (sockaddr.add(6).readU8()) + "." + (sockaddr.add(7).readU8());
-                        console.log("[FarmCapture] connect to " + ip + ":" + port);
+                        const port = (sockaddr.add(2).readU8() << 8) | sockaddr.add(3).readU8();
+                        const ip = `${sockaddr.add(4).readU8()  }.${  sockaddr.add(5).readU8()  }.${  sockaddr.add(6).readU8()  }.${  sockaddr.add(7).readU8()}`;
+                        console.log(`[FarmCapture] connect to ${  ip  }:${  port}`);
                         this._farmTarget = ip;
                     }
                 } catch(e) {}
@@ -84,17 +84,17 @@ function hookConnect() {
 function hookSSLWrite() {
     try {
         // 尝试直接查找
-        var sslWrite = Module.findExportByName(null, "SSL_write");
+        let sslWrite = Module.findExportByName(null, "SSL_write");
         if (!sslWrite) {
             // 尝试从所有模块中搜索
-            var mods = Process.enumerateModules();
-            for (var i = 0; i < mods.length; i++) {
+            const mods = Process.enumerateModules();
+            for (let i = 0; i < mods.length; i++) {
                 try {
-                    var exports = Module.enumerateExports(mods[i].name);
-                    for (var j = 0; j < exports.length; j++) {
+                    const exports = Module.enumerateExports(mods[i].name);
+                    for (let j = 0; j < exports.length; j++) {
                         if (exports[j].name === "SSL_write") {
                             sslWrite = exports[j].address;
-                            console.log("[FarmCapture] Found SSL_write in " + mods[i].name);
+                            console.log(`[FarmCapture] Found SSL_write in ${  mods[i].name}`);
                             break;
                         }
                     }
@@ -104,22 +104,22 @@ function hookSSLWrite() {
         }
         if (sslWrite) {
             Interceptor.attach(sslWrite, {
-                onEnter: function(args) {
+                onEnter(args) {
                     try {
-                        var buf = args[1];
-                        var len = args[2].toInt32();
+                        const buf = args[1];
+                        const len = args[2].toInt32();
                         if (len <= 0 || len > 16384) return;
-                        var data = buf.readUtf8String(len);
+                        let data = buf.readUtf8String(len);
                         if (!data) {
-                            var decoder = new TextDecoder("utf-8");
+                            const decoder = new TextDecoder("utf-8");
                             data = decoder.decode(buf.readByteArray(len));
                         }
                         if (data && data.includes("code=")) {
-                            var code = extractCode(data);
+                            const code = extractCode(data);
                             if (code) tryReport(code, "SSL_write");
-                            var lines = data.split("\n");
-                            for (var k = 0; k < lines.length && k < 3; k++) {
-                                if (lines[k].trim()) console.log("[FarmCapture] SSL_write: " + lines[k].trim().substring(0, 100));
+                            const lines = data.split("\n");
+                            for (let k = 0; k < lines.length && k < 3; k++) {
+                                if (lines[k].trim()) console.log(`[FarmCapture] SSL_write: ${  lines[k].trim().substring(0, 100)}`);
                             }
                         }
                     } catch(e) {}
@@ -133,30 +133,30 @@ function hookSSLWrite() {
 
 // === 4. Winsock ===
 function hookWinsock() {
-    var h = 0;
+    let h = 0;
     function onSocketData(ptr, len) {
         try {
             if (len <= 0 || len > 16384) return;
-            var decoder = new TextDecoder("utf-8");
-            var data = decoder.decode(ptr.readByteArray(len));
+            const decoder = new TextDecoder("utf-8");
+            const data = decoder.decode(ptr.readByteArray(len));
             if (data && data.includes("code=")) {
-                var code = extractCode(data);
+                const code = extractCode(data);
                 if (code) tryReport(code, "winsock");
             }
         } catch(e) {}
     }
     try {
-        var send = Module.findExportByName("ws2_32.dll", "send");
-        if (send) { Interceptor.attach(send, { onEnter: function(a) { onSocketData(a[1], a[2].toInt32()); } }); h++; }
+        const send = Module.findExportByName("ws2_32.dll", "send");
+        if (send) { Interceptor.attach(send, { onEnter(a) { onSocketData(a[1], a[2].toInt32()); } }); h++; }
     } catch(e) {}
     try {
-        var wsa = Module.findExportByName("ws2_32.dll", "WSASend");
+        const wsa = Module.findExportByName("ws2_32.dll", "WSASend");
         if (wsa) {
-            Interceptor.attach(wsa, { onEnter: function(a) {
+            Interceptor.attach(wsa, { onEnter(a) {
                 try {
-                    var cnt = a[2].toInt32();
-                    for (var i = 0; i < cnt && i < 32; i++) {
-                        var entry = a[1].add(i * 16);
+                    const cnt = a[2].toInt32();
+                    for (let i = 0; i < cnt && i < 32; i++) {
+                        const entry = a[1].add(i * 16);
                         onSocketData(entry.add(8).readPointer(), entry.readU32());
                     }
                 } catch(e) {}
@@ -165,17 +165,17 @@ function hookWinsock() {
         }
     } catch(e) {}
     try {
-        var sslRead = Module.findExportByName(null, "SSL_read");
+        const sslRead = Module.findExportByName(null, "SSL_read");
         if (sslRead) {
-            Interceptor.attach(sslRead, { onEnter: function(a) {
+            Interceptor.attach(sslRead, { onEnter(a) {
                 try {
-                    var buf = a[1];
-                    var len = a[2].toInt32();
+                    const buf = a[1];
+                    const len = a[2].toInt32();
                     if (len <= 0 || len > 16384) return;
-                    var decoder = new TextDecoder("utf-8");
-                    var data = decoder.decode(buf.readByteArray(len));
+                    const decoder = new TextDecoder("utf-8");
+                    const data = decoder.decode(buf.readByteArray(len));
                     if (data && data.includes("code=")) {
-                        var code = extractCode(data);
+                        const code = extractCode(data);
                         if (code) tryReport(code, "SSL_read");
                     }
                 } catch(e) {}
@@ -190,17 +190,17 @@ function hookWinsock() {
 function scanMemory() {
     if (captCode) return;
     try {
-        Process.enumerateRanges("rw-").forEach(function(range) {
+        Process.enumerateRanges("rw-").forEach((range) => {
             if (captCode || range.size > 1048576) return;
             try {
-                var decoder = new TextDecoder("utf-8");
-                var buf = range.base.readByteArray(Math.min(range.size, 65536));
+                const decoder = new TextDecoder("utf-8");
+                const buf = range.base.readByteArray(Math.min(range.size, 65536));
                 if (!buf) return;
-                var text = decoder.decode(buf);
-                var idx = text.indexOf(TARGET);
+                const text = decoder.decode(buf);
+                let idx = text.indexOf(TARGET);
                 while (idx >= 0 && !captCode) {
-                    var snippet = text.substring(idx, idx + 400);
-                    var code = extractCode(snippet);
+                    const snippet = text.substring(idx, idx + 400);
+                    const code = extractCode(snippet);
                     if (code) tryReport(code, "memscan");
                     idx = text.indexOf(TARGET, idx + 1);
                 }
@@ -212,21 +212,21 @@ function scanMemory() {
 function main() {
     if (injected) return;
     injected = true;
-    console.log("[FarmCapture] Starting v5... PID: " + Process.id);
-    Process.enumerateModules().forEach(function(m) {
+    console.log(`[FarmCapture] Starting v5... PID: ${  Process.id}`);
+    Process.enumerateModules().forEach((m) => {
         if (m.name.includes("electron") || m.name.includes("ssl") || m.name.includes("boringssl") || m.name.includes("winhttp") || m.name.includes("wininet") || m.name.includes("libeay") || m.name.includes("ssleay") || m.name.includes("chrome")) {
-            console.log("[FarmCapture] MOD: " + m.name);
+            console.log(`[FarmCapture] MOD: ${  m.name}`);
         }
     });
-    var h = 0;
+    let h = 0;
     if (hookGetAddrInfo()) { h++; console.log("[FarmCapture] getaddrinfo hooked"); }
     if (hookConnect()) { h++; console.log("[FarmCapture] connect hooked"); }
     if (hookSSLWrite()) { h++; console.log("[FarmCapture] SSL_write hooked"); } else { console.log("[FarmCapture] SSL_write NOT FOUND"); }
     h += hookWinsock();
-    if (h > 0) console.log("[FarmCapture] Total hooks: " + h);
+    if (h > 0) console.log(`[FarmCapture] Total hooks: ${  h}`);
     setInterval(scanMemory, 2000);
     try {
-        var http = new XMLHttpRequest();
+        const http = new XMLHttpRequest();
         http.open("POST", REPORT_URL, false);
         http.send(JSON.stringify({ action: "injected", pid: Process.id || 0, hooks: h }));
     } catch(e) {}

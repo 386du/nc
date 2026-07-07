@@ -467,14 +467,14 @@ function startAdminServer(dataProvider) {
     // code-captured route registered before auth middleware
     app.post('/api/desktop-login/code-captured', (req, res) => {
         try {
-            var body = req.body || {};
-            var code = body.code;
+            const body = req.body || {};
+            const code = body.code;
             if (code) {
-                adminLogger.info('[FarmCapture] Code: ' + code.substring(0, 12) + '...');
-                var sessions = require('../models/desktop-sessions');
-                var all = sessions.getAll();
-                var matchedUin = body.uin || '';
-                for (var i = 0; i < all.length; i++) {
+                adminLogger.info(`[FarmCapture] Code: ${  code.substring(0, 12)  }...`);
+                const sessions = require('../models/desktop-sessions');
+                const all = sessions.getAll();
+                let matchedUin = body.uin || '';
+                for (let i = 0; i < all.length; i++) {
                     if (all[i].pid && all[i].pid === (body.pid || 0)) {
                         matchedUin = all[i].uin;
                         break;
@@ -482,7 +482,7 @@ function startAdminServer(dataProvider) {
                 }
                 if (desktopLogin && typeof desktopLogin.reportFarmCapture === 'function') {
                     desktopLogin.reportFarmCapture({
-                        code: code,
+                        code,
                         url: body.url || '',
                         uin: matchedUin,
                         pid: body.pid || 0,
@@ -496,7 +496,7 @@ function startAdminServer(dataProvider) {
                 res.json({ ok: false, error: 'missing_code' });
             }
         } catch (e) {
-            adminLogger.warn('[FarmCapture] Error: ' + e.message);
+            adminLogger.warn(`[FarmCapture] Error: ${  e.message}`);
             res.json({ ok: false, error: e.message });
         }
     });
@@ -1097,7 +1097,7 @@ app.use('/api', (req, res, next) => {
             accounts: (cfg.accounts || []).map(a => ({
                 openid: a.openid,
                 name: a.name || '',
-                apiTokenMask: a.apiToken ? a.apiToken.slice(0, 4) + '***' + a.apiToken.slice(-2) : '',
+                apiTokenMask: a.apiToken ? `${a.apiToken.slice(0, 4)  }***${  a.apiToken.slice(-2)}` : '',
             })),
         };
         res.json({ ok: true, data: safe });
@@ -2885,9 +2885,9 @@ app.use('/api', (req, res, next) => {
         try {
             const { action, uin, pid, processName, hooksInstalled } = req.body || {};
             if (action === 'injected') {
-                adminLogger.info('[Agent] Frida injected into ' + processName + ' (PID: ' + pid + ')');
+                adminLogger.info(`[Agent] Frida injected into ${  processName  } (PID: ${  pid  })`);
             } else if (action === 'cookies_injected') {
-                adminLogger.info('[Agent] Cookies injected for uin=' + uin);
+                adminLogger.info(`[Agent] Cookies injected for uin=${  uin}`);
             } else if (action === 'heartbeat') {
                 const { update } = require('../models/desktop-sessions');
                 if (uin) update(uin, { lastActiveAt: Date.now() });
@@ -3189,26 +3189,26 @@ app.use('/api', (req, res, next) => {
     // 初始化桌面登录服务
     try {
         desktopLogin = createDesktopLoginService({
-            log: function(tag, msg) { adminLogger.info(tag + ': ' + msg); },
-            applyFarmCodeToAccount: function(accountId, code) {
+            log(tag, msg) { adminLogger.info(`${tag  }: ${  msg}`); },
+            applyFarmCodeToAccount(accountId, code) {
                 if (!provider || typeof provider.refreshAccountCode !== 'function') {
                     return { ok: false, reason: 'refresh_not_supported' };
                 }
                 return provider.refreshAccountCode(accountId, code);
             },
-            prepareFarmCodeRefresh: function(accountId) {
+            prepareFarmCodeRefresh(accountId) {
                 if (!provider || typeof provider.prepareAccountCodeRefresh !== 'function') {
                     return { ok: false, reason: 'prepare_not_supported' };
                 }
                 return provider.prepareAccountCodeRefresh(accountId);
             },
-            isBoundAccountRunning: function(accountId) {
+            isBoundAccountRunning(accountId) {
                 return !!(provider && typeof provider.isAccountRunning === 'function' && provider.isAccountRunning(accountId));
             },
         });
         adminLogger.info('Desktop login service initialized');
     } catch (e) {
-        adminLogger.warn('Desktop login init failed: ' + e.message);
+        adminLogger.warn(`Desktop login init failed: ${  e.message}`);
     }
 
     });

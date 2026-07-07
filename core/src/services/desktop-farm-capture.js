@@ -1,7 +1,7 @@
 const path = require('node:path');
 
 const FARM_HOST = 'gate-obt.nqf.qq.com';
-const FARM_CODE_RE = /[?&]code=([A-Za-z0-9_-]{16,})/i;
+const FARM_CODE_RE = /[?&]code=([\w-]{16,})/i;
 
 function parseFarmCodeFromText(text) {
   const source = String(text || '');

@@ -1,50 +1,50 @@
 /**
  * MITM 代理服务 - 截获农场 WebSocket code
  */
-var path = require("path");
-var ProxyLib = null;
+const path = require("path");
+let ProxyLib = null;
 try { ProxyLib = require("http-mitm-proxy").Proxy; } catch(e) {}
 
-var activeProxies = [];
+let activeProxies = [];
 
 function startProxy(options) {
-    return new Promise(function(resolve, reject) {
+    return new Promise((resolve, reject) => {
         if (!ProxyLib) return reject(new Error("http-mitm-proxy 未安装"));
-        var port = options.port || 18888;
-        var onCode = options.onCode || function() {};
-        var log = options.log || console.log;
-        var proxy = new ProxyLib();
+        const port = options.port || 18888;
+        const onCode = options.onCode || function() {};
+        const log = options.log || console.log;
+        const proxy = new ProxyLib();
 
-        proxy.onRequest(function(ctx, callback) {
-            var method = ctx.clientToProxyRequest.method;
-            var url = ctx.clientToProxyRequest.url || "";
-            var host = (ctx.clientToProxyRequest.headers && ctx.clientToProxyRequest.headers.host) || "";
+        proxy.onRequest((ctx, callback) => {
+            const method = ctx.clientToProxyRequest.method;
+            const url = ctx.clientToProxyRequest.url || "";
+            const host = (ctx.clientToProxyRequest.headers && ctx.clientToProxyRequest.headers.host) || "";
             if (url.includes("nqf.qq.com") && url.includes("code=")) {
-                var m = url.match(/[?&]code=([a-zA-Z0-9_-]+)/);
+                const m = url.match(/[?&]code=([\w-]+)/);
                 if (m && m[1]) {
-                    log("[MITMProxy] CODE: " + m[1]);
+                    log(`[MITMProxy] CODE: ${  m[1]}`);
                     onCode(m[1], url);
                 }
             }
             return callback();
         });
 
-        proxy.onError(function(ctx, err, kind) {
-            log("[MITMProxy] " + kind + ": " + (err && err.message));
+        proxy.onError((ctx, err, kind) => {
+            log(`[MITMProxy] ${  kind  }: ${  err && err.message}`);
         });
 
-        var caDir = path.join(process.cwd(), "data", "mitm-certs");
-        proxy.listen({ port: port, sslCaDir: caDir }, function() {
-            log("[MITMProxy] \u4EE3理已启动: 127.0.0.1:" + port);
+        const caDir = path.join(process.cwd(), "data", "mitm-certs");
+        proxy.listen({ port, sslCaDir: caDir }, () => {
+            log(`[MITMProxy] \u4EE3理已启动: 127.0.0.1:${  port}`);
             activeProxies.push(proxy);
-            resolve({ port: port, caCertPath: path.join(caDir, "certs", "ca.pem"), proxy: proxy });
+            resolve({ port, caCertPath: path.join(caDir, "certs", "ca.pem"), proxy });
         });
     });
 }
 
 function stopAll() {
-    activeProxies.forEach(function(p) { try { p.close(); } catch(e) {} });
+    activeProxies.forEach((p) => { try { p.close(); } catch(e) {} });
     activeProxies = [];
 }
 
-module.exports = { startProxy: startProxy, stopAll: stopAll };
+module.exports = { startProxy, stopAll };

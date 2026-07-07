@@ -85,10 +85,10 @@ function findGameJsInFolder(folder) {
 function openUrl(url) {
   if (IS_WIN) {
     try {
-      execSync('rundll32 url.dll,FileProtocolHandler "' + url + '"', { windowsHide: true, timeout: 10000 });
+      execSync(`rundll32 url.dll,FileProtocolHandler "${  url  }"`, { windowsHide: true, timeout: 10000 });
     } catch {
       try {
-        execSync('cmd.exe /c start "" "' + url + '"', { windowsHide: true, timeout: 10000, shell: true });
+        execSync(`cmd.exe /c start "" "${  url  }"`, { windowsHide: true, timeout: 10000, shell: true });
       } catch {}
     }
     return;
@@ -159,7 +159,7 @@ function getProcessTreeWin() {
     ], { windowsHide: true, timeout: 5000, maxBuffer: 1024 * 1024 });
     const parsed = JSON.parse(out.toString("utf8").trim());
     const items = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
-    return items.map(function(r) { return { pid: Number(r.ProcessId), parentPid: Number(r.ParentProcessId), commandLine: String(r.CommandLine || "") }; });
+    return items.map((r) => { return { pid: Number(r.ProcessId), parentPid: Number(r.ParentProcessId), commandLine: String(r.CommandLine || "") }; });
   } catch { return []; }
 }
 
@@ -167,10 +167,10 @@ function getProcessTreeMac() {
   try {
     const out = execFileSync("ps", ["-eo", "pid,ppid,comm"], { timeout: 3000, maxBuffer: 1024 * 1024, encoding: "utf8" });
     const lines = out.trim().split("\n").slice(1);
-    return lines.map(function(line) {
+    return lines.map((line) => {
       const parts = line.trim().split(/\s+/);
       return { pid: Number(parts[0]), parentPid: Number(parts[1]), commandLine: parts.slice(2).join(" ") || "" };
-    }).filter(function(r) { return r.pid > 0; });
+    }).filter((r) => { return r.pid > 0; });
   } catch { return []; }
 }
 
@@ -185,35 +185,35 @@ function getQQPids() {
 }
 
 function getQQPidsWin() {
-  return new Promise(function(resolve) {
-    var cp = require("node:child_process");
-    var ps = cp.spawn("powershell", [
+  return new Promise((resolve) => {
+    const cp = require("node:child_process");
+    const ps = cp.spawn("powershell", [
       "-NoProfile", "-Command",
       "(Get-Process -Name QQ -ErrorAction SilentlyContinue).Id | ConvertTo-Json"
     ], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-    var out = "";
-    ps.stdout.on("data", function(d) { out += d.toString(); });
-    ps.on("close", function() {
+    let out = "";
+    ps.stdout.on("data", (d) => { out += d.toString(); });
+    ps.on("close", () => {
       try {
-        var parsed = JSON.parse(out.trim());
+        const parsed = JSON.parse(out.trim());
         resolve(Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []));
       } catch(e) { resolve([]); }
     });
-    setTimeout(function() { resolve([]); }, 3000);
+    setTimeout(() => { resolve([]); }, 3000);
   });
 }
 
 function getQQPidsMac() {
-  return new Promise(function(resolve) {
-    var cp = require("node:child_process");
-    var ps = cp.spawn("pgrep", ["-x", "QQ"], { stdio: ["ignore", "pipe", "pipe"] });
-    var out = "";
-    ps.stdout.on("data", function(d) { out += d.toString(); });
-    ps.on("close", function() {
-      var pids = out.trim().split("\n").filter(Boolean).map(Number);
+  return new Promise((resolve) => {
+    const cp = require("node:child_process");
+    const ps = cp.spawn("pgrep", ["-x", "QQ"], { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    ps.stdout.on("data", (d) => { out += d.toString(); });
+    ps.on("close", () => {
+      const pids = out.trim().split("\n").filter(Boolean).map(Number);
       resolve(pids);
     });
-    setTimeout(function() { resolve([]); }, 3000);
+    setTimeout(() => { resolve([]); }, 3000);
   });
 }
 

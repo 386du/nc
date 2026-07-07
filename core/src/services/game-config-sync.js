@@ -68,10 +68,10 @@ function overwriteBundledConfigs(itemSourcePath, plantSourcePath, imageSourceDir
     if (imageSourceDir && fs.existsSync(imageSourceDir)) {
         const bundledImageDir = getResourcePath('gameConfig', 'seed_images_named');
         fs.mkdirSync(bundledImageDir, { recursive: true });
-        var sourceFiles = fs.readdirSync(imageSourceDir);
-        for (var i = 0; i < sourceFiles.length; i++) {
-            var srcPath = path.join(imageSourceDir, sourceFiles[i]);
-            var dstPath = path.join(bundledImageDir, sourceFiles[i]);
+        const sourceFiles = fs.readdirSync(imageSourceDir);
+        for (let i = 0; i < sourceFiles.length; i++) {
+            const srcPath = path.join(imageSourceDir, sourceFiles[i]);
+            const dstPath = path.join(bundledImageDir, sourceFiles[i]);
             if (fs.statSync(srcPath).isFile()) {
                 if (!fs.existsSync(dstPath) || !filesEqual(srcPath, dstPath)) {
                     writeAtomic(dstPath, fs.readFileSync(srcPath));
@@ -85,18 +85,18 @@ function overwriteBundledConfigs(itemSourcePath, plantSourcePath, imageSourceDir
 
 function scanCacheDir(fsRoot, hasAccountDir) {
     if (!fs.existsSync(fsRoot)) return [];
-    var candidates = [];
+    const candidates = [];
     try {
-        var dirs = fs.readdirSync(fsRoot);
-        for (var i = 0; i < dirs.length; i++) {
-            var gameCachesDir = hasAccountDir
+        const dirs = fs.readdirSync(fsRoot);
+        for (let i = 0; i < dirs.length; i++) {
+            const gameCachesDir = hasAccountDir
                 ? path.join(fsRoot, dirs[i], QQ_FARM_APP_ID, 'usr', 'gamecaches')
                 : path.join(fsRoot, QQ_FARM_APP_ID, 'usr', 'gamecaches');
-            var cacheListPath = path.join(gameCachesDir, 'cacheList.json');
+            const cacheListPath = path.join(gameCachesDir, 'cacheList.json');
             if (!fs.existsSync(cacheListPath)) continue;
             candidates.push({
-                gameCachesDir: gameCachesDir,
-                cacheListPath: cacheListPath,
+                gameCachesDir,
+                cacheListPath,
                 mtimeMs: fs.statSync(cacheListPath).mtimeMs,
             });
         }
@@ -105,14 +105,14 @@ function scanCacheDir(fsRoot, hasAccountDir) {
 }
 
 function findLatestQQFarmCache() {
-    var candidates = [];
+    const candidates = [];
     // macOS
     candidates.push.apply(candidates, scanCacheDir(path.join(os.homedir(), QQ_CACHE_RELATIVE_ROOT), true));
     // Windows QQEX
     candidates.push.apply(candidates, scanCacheDir(path.join(os.homedir(), WINDOWS_QQ_CACHE_ROOT), true));
     // Windows QQNT
     candidates.push.apply(candidates, scanCacheDir(path.join(os.homedir(), WINDOWS_QQNT_CACHE_ROOT), false));
-    candidates.sort(function (a, b) { return b.mtimeMs - a.mtimeMs; });
+    candidates.sort((a, b) => { return b.mtimeMs - a.mtimeMs; });
     return candidates[0] || null;
 }
 
@@ -313,14 +313,14 @@ function getSeedAssetCandidates(item) {
     if (assetMatch) add(`Crop_${Number(assetMatch[1])}`);
 
     // Add _Seed suffixed versions to match buildSeedAssetIndex keys
-    var suffixList = [];
+    const suffixList = [];
     for (var i = 0; i < candidates.length; i++) {
-        if (candidates[i].indexOf('_Seed') === -1) {
-            suffixList.push(candidates[i] + '_Seed');
+        if (!candidates[i].includes('_Seed')) {
+            suffixList.push(`${candidates[i]  }_Seed`);
         }
     }
     for (var i = 0; i < suffixList.length; i++) {
-        if (candidates.indexOf(suffixList[i]) === -1) candidates.push(suffixList[i]);
+        if (!candidates.includes(suffixList[i])) candidates.push(suffixList[i]);
     }
 
     return candidates;
@@ -363,7 +363,7 @@ async function mapLimit(values, limit, worker) {
  * Used when CDN/bundle image not available
  */
 function writePlaceholderPng(filePath, label) {
-    var png = Buffer.from([
+    const png = Buffer.from([
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
         0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
         0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
@@ -617,8 +617,8 @@ async function syncGameConfigFromQQCache(options = {}) {
     const officialItems = decodeCocosJsonAsset(JSON.parse(itemBuffer.toString('utf8')), 'ItemInfo');
     const officialPlants = decodeCocosJsonAsset(JSON.parse(plantBuffer.toString('utf8')), 'Plant');
     // Filter out fake/placeholder plant IDs
-    var validPlants = officialPlants.filter(function(p) {
-        var pid = Number(p && p.id) || 0;
+    const validPlants = officialPlants.filter((p) => {
+        const pid = Number(p && p.id) || 0;
         return pid !== 29999;
     });
     if (officialItems.length < 100) throw new Error(`ItemInfo 数量异常: ${officialItems.length}`);

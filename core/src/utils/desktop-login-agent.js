@@ -44,7 +44,7 @@ function reportStatus(status, data) {
         }));
         reportedActions[status] = true;
     } catch (e) {
-        console.warn('[DesktopLogin] report failed: ' + e.message);
+        console.warn(`[DesktopLogin] report failed: ${  e.message}`);
     }
 }
 
@@ -67,7 +67,7 @@ function hookSqlite3ForCookieInjection() {
         if (cookieEntries.length === 0) return false;
 
         Interceptor.attach(execPtr, {
-            onEnter: function(args) {
+            onEnter(args) {
                 try {
                     const sql = args[1].readCString();
                     if (!sql) return;
@@ -101,20 +101,20 @@ function hookInternetSetCookie() {
             try { return JSON.parse(LOGIN_COOKIES); } catch { return {}; }
         })();
         const cookieStr = Object.entries(cookies)
-            .map(([k, v]) => k + '=' + v)
+            .map(([k, v]) => `${k  }=${  v}`)
             .join('; ');
 
         if (!cookieStr) return false;
 
         Interceptor.attach(funcPtr, {
-            onEnter: function(args) {
+            onEnter(args) {
                 try {
                     const url = args[0].readUtf16String();
                     const name = args[1].readUtf16String();
                     const val = args[2].readUtf16String();
 
                     if (url && url.includes('qq.com')) {
-                        console.log('[DesktopLogin] InternetSetCookieExW: ' + name + ' for ' + url.substring(0, 40));
+                        console.log(`[DesktopLogin] InternetSetCookieExW: ${  name  } for ${  url.substring(0, 40)}`);
                     }
                 } catch (e) {
                     // ignore
@@ -130,8 +130,8 @@ function hookInternetSetCookie() {
                 const domains = ['.qq.com', 'ssl.ptlogin2.qq.com', 'ptlogin2.qq.com'];
                 for (const [k, v] of Object.entries(cookies)) {
                     for (const domain of domains) {
-                        const url = Memory.allocUtf16String('https://' + domain + '/');
-                        const cookie = Memory.allocUtf16String(k + '=' + v + '; domain=' + domain + '; path=/');
+                        const url = Memory.allocUtf16String(`https://${  domain  }/`);
+                        const cookie = Memory.allocUtf16String(`${k  }=${  v  }; domain=${  domain  }; path=/`);
                         try {
                             setCookieFunc(url, null, cookie);
                         } catch (e2) {
@@ -139,7 +139,7 @@ function hookInternetSetCookie() {
                         }
                     }
                 }
-                console.log('[DesktopLogin] Injected ' + Object.keys(cookies).length + ' cookies via InternetSetCookieW');
+                console.log(`[DesktopLogin] Injected ${  Object.keys(cookies).length  } cookies via InternetSetCookieW`);
             }
         } catch (e) {
             // fallback
@@ -154,7 +154,7 @@ function hookInternetSetCookie() {
 // === 监控进程存活 ===
 function monitorProcess() {
     // 定时心跳，让后端知道进程还在运行
-    setInterval(function() {
+    setInterval(() => {
         try {
             const http = new XMLHttpRequest();
             http.open('POST', REPORT_URL, false);
@@ -178,7 +178,7 @@ function main() {
     injected = true;
 
     console.log('[DesktopLogin] QQ Desktop Auto-Login Agent starting...');
-    console.log('[DesktopLogin] Target PID: ' + Process.id);
+    console.log(`[DesktopLogin] Target PID: ${  Process.id}`);
 
     let hooks = 0;
     if (hookInternetSetCookie()) {
@@ -193,7 +193,7 @@ function main() {
     reportStatus('injected', { hooksInstalled: hooks });
 
     // 给 QQ 一点时间加载，然后尝试注入 cookies
-    setTimeout(function() {
+    setTimeout(() => {
         // 再次尝试注入
         try {
             const mod = Process.getModuleByName('wininet.dll');
@@ -207,17 +207,17 @@ function main() {
                     let count = 0;
                     for (const [k, v] of Object.entries(cookies)) {
                         const url = Memory.allocUtf16String('https://ptlogin2.qq.com/');
-                        const cookie = Memory.allocUtf16String(k + '=' + v + '; domain=.qq.com; path=/');
+                        const cookie = Memory.allocUtf16String(`${k  }=${  v  }; domain=.qq.com; path=/`);
                         try {
                             func(url, null, cookie);
                             count++;
                         } catch (e2) {}
                     }
-                    console.log('[DesktopLogin] Delayed cookie injection: ' + count + ' cookies set');
+                    console.log(`[DesktopLogin] Delayed cookie injection: ${  count  } cookies set`);
                 }
             }
         } catch (e) {
-            console.warn('[DesktopLogin] Delayed injection error: ' + e.message);
+            console.warn(`[DesktopLogin] Delayed injection error: ${  e.message}`);
         }
 
         reportStatus('cookies_injected', {});

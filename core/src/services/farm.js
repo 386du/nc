@@ -21,7 +21,7 @@ let isFirstFarmCheck = true;
 let farmLoopRunning = false;
 let externalSchedulerMode = false;
 let fertilizerBuyCheckTimer = null;
-let lastFertilizerBuyCheckAt = 0;
+const lastFertilizerBuyCheckAt = 0;
 const farmScheduler = createScheduler('farm');
 
 // ============ 农场 API ============
@@ -1013,7 +1013,7 @@ async function getLandsDetail() {
             if (seedId === 29999) continue;
             const seedImage = seedId > 0 ? getSeedImageBySeedId(seedId) : '';
             const plantSize = Math.max(1, toNum(plantCfg && plantCfg.size) || 1);
-            const mutantConfigIds = plant.mutant_config_ids ? plant.mutant_config_ids.map(function(v) { return Number(v); }).filter(function(v) { return v > 0; }) : [];
+            const mutantConfigIds = plant.mutant_config_ids ? plant.mutant_config_ids.map((v) => { return Number(v); }).filter((v) => { return v > 0; }) : [];
 
             // 变异检测
             const mutationInfo = resolveMutationInfo(plantId, mutantConfigIds);
@@ -1031,17 +1031,17 @@ async function getLandsDetail() {
 
             // Also check for phase-level mutations (阶段级变异)
             if (!mutationType && mutantConfigIds.length === 0 && Array.isArray(plant.phases)) {
-                for (var pi = 0; pi < plant.phases.length; pi++) {
-                    var ph = plant.phases[pi];
+                for (let pi = 0; pi < plant.phases.length; pi++) {
+                    const ph = plant.phases[pi];
                     if (ph && ph.mutants && ph.mutants.length > 0) {
                         // Phase has actual mutation data, mark as mutant
                         isMutant = true;
-                        var mutantTypes = getAllMutantTypes();
+                        const mutantTypes = getAllMutantTypes();
                         if (mutantTypes) {
-                            var keys = Object.keys(mutantTypes);
-                            for (var ki = 0; ki < keys.length; ki++) {
-                                var mt = keys[ki];
-                                var mcfg = mutantTypes[mt];
+                            const keys = Object.keys(mutantTypes);
+                            for (let ki = 0; ki < keys.length; ki++) {
+                                const mt = keys[ki];
+                                const mcfg = mutantTypes[mt];
                                 if (mcfg && (!mcfg.qualityRank || mcfg.qualityRank > 2)) {
                                     // phase-level growth mutations
                                     mutationType = mt;
@@ -1059,7 +1059,7 @@ async function getLandsDetail() {
             // Determine mutation key for display
             if (mutationType && !mutationKey) {
                 if (mutationType === '月华' || mutationType === '黄金') {
-                    mutationKey = mutationType + '_' + mutationQuality;
+                    mutationKey = `${mutationType  }_${  mutationQuality}`;
                 } else {
                     mutationKey = mutationType;
                 }
@@ -1100,11 +1100,11 @@ async function getLandsDetail() {
                 needWeed,
                 needBug,
                 stealable: !!plant.stealable,
-                isMutant: isMutant,
-                isGolden: isGolden,
-                mutationType: mutationType,
-                mutationQuality: mutationQuality,
-                mutationKey: mutationKey,
+                isMutant,
+                isGolden,
+                mutationType,
+                mutationQuality,
+                mutationKey,
                 level,
                 maxLevel,
                 landsLevel,
@@ -1616,14 +1616,14 @@ async function runFarmOperation(opType) {
                 recordOperation('harvest', status.harvestable.length);
                 harvestedLandIds = [...status.harvestable];
                 // 检测收获中的变异作物
-                var mutantCrops = [];
+                const mutantCrops = [];
                 if (harvestReply && harvestReply.land) {
-                    for (var hi = 0; hi < harvestReply.land.length; hi++) {
+                    for (let hi = 0; hi < harvestReply.land.length; hi++) {
                         var rl = harvestReply.land[hi];
                         if (rl && rl.plant && rl.plant.mutant_config_ids && rl.plant.mutant_config_ids.length > 0) {
-                            var configIds = rl.plant.mutant_config_ids.map(function(v) { return Number(v); }).filter(function(v) { return v > 0; });
+                            const configIds = rl.plant.mutant_config_ids.map((v) => { return Number(v); }).filter((v) => { return v > 0; });
                             if (configIds.length > 0) {
-                                var mi = resolveMutationInfo(Number(rl.plant.id) || 0, configIds);
+                                const mi = resolveMutationInfo(Number(rl.plant.id) || 0, configIds);
                                 if (mi && mi.mutationType) {
                                     mutantCrops.push({
                                         landId: Number(rl.id),
@@ -1637,11 +1637,11 @@ async function runFarmOperation(opType) {
                         }
                         // Also check phase-level mutations
                         if (rl && rl.plant && rl.plant.phases) {
-                            for (var pi = 0; pi < rl.plant.phases.length; pi++) {
-                                var ph = rl.plant.phases[pi];
+                            for (let pi = 0; pi < rl.plant.phases.length; pi++) {
+                                const ph = rl.plant.phases[pi];
                                 if (ph && ph.mutants && ph.mutants.length > 0) {
                                     // Phase has mutation data
-                                    if (!mutantCrops.some(function(ex) { return ex.landId === Number(rl.id); })) {
+                                    if (!mutantCrops.some((ex) => { return ex.landId === Number(rl.id); })) {
                                         mutantCrops.push({
                                             landId: Number(rl.id),
                                             plantName: rl.plant.name || '',
@@ -1657,8 +1657,8 @@ async function runFarmOperation(opType) {
                     }
                 }
                 if (mutantCrops.length > 0) {
-                    var mutantNames = mutantCrops.map(function(mc) { return mc.mutationType + '(' + mc.plantName + ')'; }).join(', ');
-                    log('变异', '收获发现变异作物: ' + mutantNames, {
+                    const mutantNames = mutantCrops.map((mc) => { return `${mc.mutationType  }(${  mc.plantName  })`; }).join(', ');
+                    log('变异', `收获发现变异作物: ${  mutantNames}`, {
                         module: 'farm',
                         event: '变异收获',
                         result: 'ok',

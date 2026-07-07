@@ -10,7 +10,7 @@ const SESSIONS_FILE = getDataFile('desktop-sessions.json');
 const LEGACY_OWNER_USERNAME = 'carsen';
 
 /**
- * @typedef {Object} DesktopSession
+ * @typedef {object} DesktopSession
  * @property {string} uin - QQ号
  * @property {string} nickname - QQ昵称
  * @property {number|null} pid - QQ.exe 进程PID (null=未启动)

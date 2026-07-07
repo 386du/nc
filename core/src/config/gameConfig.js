@@ -17,7 +17,7 @@ const plantMap = new Map();  // id -> plant
 const seedToPlant = new Map();  // seed_id -> plant
 const fruitToPlant = new Map();  // fruit_id -> plant (果实ID -> 植物)
 let itemInfoConfig = null;
-let mutantTypesConfig = null;
+const mutantTypesConfig = null;
 const mutantTypeMap = new Map();
 
 /**
@@ -145,7 +145,7 @@ function getMutationTypeByFruitId(fruitId) {
         const item = itemInfoMap.get(Number(fruitId) || 0);
         const level = Number(item && item.level) || 0;
         const quality = level >= 200 ? "天工" : (level >= 100 ? "珍品" : "稀有");
-        return { type: "黄金", quality: quality };
+        return { type: "黄金", quality };
     }
     return null;
 }
@@ -167,13 +167,13 @@ function resolveMutationInfo(plantId, mutantConfigIds) {
         const mType = determineMutationType(plantId, cfg.targetPlantId, plantName, targetName);
         if (mType) {
             const q = determineMutationQuality(mType, targetPlant ? Number(targetPlant.exp) || 0 : 0);
-            const mKey = mType === "荷华" ? (mType + "_" + q) : (mType === "黄金" ? (mType + "_" + q) : mType);
+            const mKey = mType === "荷华" ? (`${mType  }_${  q}`) : (mType === "黄金" ? (`${mType  }_${  q}`) : mType);
             confidence.push({
                 mutationType: mType,
                 mutationKey: mKey,
                 quality: q,
                 targetPlantId: cfg.targetPlantId,
-                targetName: targetName,
+                targetName,
                 phase: cfg.phase,
                 weight: cfg.probability,
             });
@@ -226,10 +226,10 @@ function resolveMutationInfo(plantId, mutantConfigIds) {
 
     return {
         isMutant: (Array.isArray(mutantConfigIds) && mutantConfigIds.length > 0) || !!selfType,
-        isGolden: isGolden,
+        isGolden,
         mutationType: displayType,
         mutationQuality: displayQuality,
-        confidence: confidence,
+        confidence,
         mutantConfigIds: Array.isArray(mutantConfigIds) ? mutantConfigIds.map(Number).filter(Boolean) : [],
     };
 }
@@ -295,7 +295,7 @@ function loadConfigs() {
                 for (const [typeName, typeConfig] of Object.entries(types)) {
                     mutantTypeMap.set(typeName, typeConfig);
                 }
-                console.warn('[配置] 已加载变异类型配置 (' + mutantTypeMap.size + ' 种)');
+                console.warn(`[配置] 已加载变异类型配置 (${  mutantTypeMap.size  } 种)`);
             }
         }
     } catch (e) {
