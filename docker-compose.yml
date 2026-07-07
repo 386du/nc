@@ -4,13 +4,13 @@ services:
       context: .
       dockerfile: core/Dockerfile
     image: qq-farm-bot:latest
-    container_name: qq-farm-bot
+    container_name: qq-farm-bot-new
     restart: unless-stopped
     ports:
       - "${PORT:-3338}:3338"
     volumes:
-      - qq-farm-data:/app/core/data
-      - qq-farm-logs:/app/core/data/logs
+      - qq-farm-new-data:/app/core/data
+      - qq-farm-new-logs:/app/core/data/logs
     environment:
       - TZ=${TZ:-Asia/Shanghai}
       - NODE_ENV=production
@@ -28,7 +28,7 @@ services:
         max-file: "3"
 
 volumes:
-  qq-farm-data:
-    name: qq-farm-data
-  qq-farm-logs:
-    name: qq-farm-logs
+  qq-farm-new-data:
+    name: qq-farm-new-data
+  qq-farm-new-logs:
+    name: qq-farm-new-logs
