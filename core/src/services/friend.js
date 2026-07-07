@@ -15,6 +15,8 @@ const {
     getKnownFriendGidSyncCooldownSec,
     getFriendsListCacheTtlSec,
     applyConfigSnapshot,
+    getFriendGuardDogBlacklist,
+    getFriendGuardDogWhitelist,
 } = require('../models/store');
 const { sendMsgAsync, getUserState, networkEvents } = require('../utils/network');
 const { types } = require('../utils/proto');
@@ -257,7 +259,18 @@ function getEffectiveKnownQqFriendGids() {
 
     const invalidGidSet = getInvalidKnownFriendGidSet();
     const blacklistSet = new Set(getFriendBlacklist(accountId));
-    return normalizeFriendGids(currentKnownGids).filter(gid => !invalidGidSet.has(gid) && !blacklistSet.has(gid));
+    const guardDogBlackSet = new Set(getFriendGuardDogBlacklist(accountId));
+    const guardDogWhiteList = getFriendGuardDogWhitelist(accountId);
+    const guardDogWhiteSet = new Set(guardDogWhiteList);
+    // 护犬主逻辑：白名单非空时只帮白名单；否则排除黑名单
+    // 注意：黑名单永远生效（即便在白名单模式）
+    return normalizeFriendGids(currentKnownGids).filter(gid => {
+        if (invalidGidSet.has(gid)) return false;
+        if (blacklistSet.has(gid)) return false;
+        if (guardDogBlackSet.has(gid)) return false;
+        if (guardDogWhiteList.length > 0 && !guardDogWhiteSet.has(gid)) return false;
+        return true;
+    });
 }
 
 async function syncKnownFriendGidsFromRecentVisitors(force = false) {

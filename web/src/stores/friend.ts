@@ -20,6 +20,9 @@ export const useFriendStore = defineStore('friend', () => {
   const friendLands = ref<Record<string, any[]>>({})
   const friendLandsLoading = ref<Record<string, boolean>>({})
   const blacklist = ref<BlacklistItem[]>([])
+  // 护主犬帮忙黑/白名单
+  const guardDogBlacklist = ref<BlacklistItem[]>([])
+  const guardDogWhitelist = ref<BlacklistItem[]>([])
   const interactRecords = ref<any[]>([])
   const interactLoading = ref(false)
   const interactError = ref('')
@@ -144,6 +147,67 @@ export const useFriendStore = defineStore('friend', () => {
     })
     if (res.data.ok) {
       blacklist.value = res.data.data || []
+    }
+  }
+
+  async function fetchGuardDogBlacklist(accountId: string) {
+    if (!accountId)
+      return
+    try {
+      const res = await api.get('/api/friend-guard-dog-blacklist', {
+        headers: { 'x-account-id': accountId },
+      })
+      if (res.data.ok) {
+        guardDogBlacklist.value = res.data.data || []
+      }
+    }
+    catch { /* ignore */ }
+  }
+
+  async function toggleGuardDogBlacklist(accountId: string, gid: number) {
+    if (!accountId || !gid)
+      return
+    const res = await api.post('/api/friend-guard-dog-blacklist/toggle', { gid }, {
+      headers: { 'x-account-id': accountId },
+    })
+    if (res.data.ok) {
+      guardDogBlacklist.value = res.data.data || []
+    }
+  }
+
+  async function fetchGuardDogWhitelist(accountId: string) {
+    if (!accountId)
+      return
+    try {
+      const res = await api.get('/api/friend-guard-dog-whitelist', {
+        headers: { 'x-account-id': accountId },
+      })
+      if (res.data.ok) {
+        guardDogWhitelist.value = res.data.data || []
+      }
+    }
+    catch { /* ignore */ }
+  }
+
+  async function toggleGuardDogWhitelist(accountId: string, gid: number) {
+    if (!accountId || !gid)
+      return
+    const res = await api.post('/api/friend-guard-dog-whitelist/toggle', { gid }, {
+      headers: { 'x-account-id': accountId },
+    })
+    if (res.data.ok) {
+      guardDogWhitelist.value = res.data.data || []
+    }
+  }
+
+  async function setGuardDogWhitelist(accountId: string, gids: number[]) {
+    if (!accountId)
+      return
+    const res = await api.post('/api/friend-guard-dog-whitelist/set', { gids }, {
+      headers: { 'x-account-id': accountId },
+    })
+    if (res.data.ok) {
+      guardDogWhitelist.value = res.data.data || []
     }
   }
 
@@ -291,6 +355,8 @@ export const useFriendStore = defineStore('friend', () => {
     friendLands,
     friendLandsLoading,
     blacklist,
+    guardDogBlacklist,
+    guardDogWhitelist,
     interactRecords,
     interactLoading,
     interactError,
@@ -302,6 +368,11 @@ export const useFriendStore = defineStore('friend', () => {
     fetchFriends,
     fetchBlacklist,
     toggleBlacklist,
+    fetchGuardDogBlacklist,
+    toggleGuardDogBlacklist,
+    fetchGuardDogWhitelist,
+    toggleGuardDogWhitelist,
+    setGuardDogWhitelist,
     fetchInteractRecords,
     fetchFriendLands,
     operate,

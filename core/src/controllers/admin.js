@@ -966,6 +966,229 @@ app.use('/api', (req, res, next) => {
         res.json({ ok: true, data: saved });
     });
 
+    // ============ 护主犬帮忙黑/白名单 ============
+    function buildGuardDogListWithFriendInfo(accountId, gids) {
+        return (Array.isArray(gids) ? gids : []).map(gid => ({
+            gid: Number(gid),
+            name: '',
+            avatarUrl: '',
+        }));
+    }
+
+    async function buildGuardDogListWithFriendInfoAsync(accountId, gids) {
+        const list = (Array.isArray(gids) ? gids : []).map(gid => ({
+            gid: Number(gid),
+            name: '',
+            avatarUrl: '',
+        }));
+        if (!provider || typeof provider.getFriends !== 'function') return list;
+        try {
+            const friendsList = await provider.getFriends(accountId) || [];
+            const friendMap = new Map();
+            for (const f of friendsList) {
+                const fGid = Number(f && f.gid);
+                if (fGid > 0) friendMap.set(fGid, f);
+            }
+            return list.map(item => {
+                const info = friendMap.get(item.gid) || {};
+                return {
+                    gid: item.gid,
+                    name: info.name || info.remark || '',
+                    avatarUrl: info.avatarUrl || info.avatar_url || '',
+                };
+            });
+        } catch (e) {
+            return list;
+        }
+    }
+
+    // 护主犬黑名单 - 读取
+    app.get('/api/friend-guard-dog-blacklist', async (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!checkAccountAccess(req, id)) return res.status(403).json({ ok: false, error: '无权访问此账号' });
+        const gids = store.getFriendGuardDogBlacklist ? store.getFriendGuardDogBlacklist(id) : [];
+        const data = await buildGuardDogListWithFriendInfoAsync(id, gids);
+        res.json({ ok: true, data });
+    });
+
+    // 护主犬黑名单 - 切换单个 GID
+    app.post('/api/friend-guard-dog-blacklist/toggle', async (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!checkAccountAccess(req, id)) return res.status(403).json({ ok: false, error: '无权访问此账号' });
+        const gid = Number((req.body || {}).gid);
+        if (!gid) return res.status(400).json({ ok: false, error: 'Missing gid' });
+        if (!store.addFriendGuardDogBlacklistGid || !store.removeFriendGuardDogBlacklistGid) {
+            return res.status(500).json({ ok: false, error: '护主犬黑名单功能未启用' });
+        }
+        const had = (store.getFriendGuardDogBlacklist(id) || []).includes(gid);
+        if (had) {
+            store.removeFriendGuardDogBlacklistGid(id, gid);
+        } else {
+            store.addFriendGuardDogBlacklistGid(id, gid);
+        }
+        const savedGids = store.getFriendGuardDogBlacklist(id);
+        if (provider && typeof provider.broadcastConfig === 'function') {
+            provider.broadcastConfig(id);
+        }
+        const data = await buildGuardDogListWithFriendInfoAsync(id, savedGids);
+        res.json({ ok: true, data });
+    });
+
+    // 护主犬白名单 - 读取
+    app.get('/api/friend-guard-dog-whitelist', async (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!checkAccountAccess(req, id)) return res.status(403).json({ ok: false, error: '无权访问此账号' });
+        const gids = store.getFriendGuardDogWhitelist ? store.getFriendGuardDogWhitelist(id) : [];
+        const data = await buildGuardDogListWithFriendInfoAsync(id, gids);
+        res.json({ ok: true, data });
+    });
+
+    // 护主犬白名单 - 切换单个 GID
+    app.post('/api/friend-guard-dog-whitelist/toggle', async (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!checkAccountAccess(req, id)) return res.status(403).json({ ok: false, error: '无权访问此账号' });
+        const gid = Number((req.body || {}).gid);
+        if (!gid) return res.status(400).json({ ok: false, error: 'Missing gid' });
+        if (!store.addFriendGuardDogWhitelistGid || !store.removeFriendGuardDogWhitelistGid) {
+            return res.status(500).json({ ok: false, error: '护主犬白名单功能未启用' });
+        }
+        const had = (store.getFriendGuardDogWhitelist(id) || []).includes(gid);
+        if (had) {
+            store.removeFriendGuardDogWhitelistGid(id, gid);
+        } else {
+            store.addFriendGuardDogWhitelistGid(id, gid);
+        }
+        const savedGids = store.getFriendGuardDogWhitelist(id);
+        if (provider && typeof provider.broadcastConfig === 'function') {
+            provider.broadcastConfig(id);
+        }
+        const data = await buildGuardDogListWithFriendInfoAsync(id, savedGids);
+        res.json({ ok: true, data });
+    });
+
+    // 护主犬白名单 - 整体替换
+    app.post('/api/friend-guard-dog-whitelist/set', async (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!checkAccountAccess(req, id)) return res.status(403).json({ ok: false, error: '无权访问此账号' });
+        const list = (req.body || {}).gids;
+        if (!Array.isArray(list)) return res.status(400).json({ ok: false, error: 'gids 必须是数组' });
+        const savedGids = store.setFriendGuardDogWhitelist ? store.setFriendGuardDogWhitelist(id, list) : list;
+        if (provider && typeof provider.broadcastConfig === 'function') {
+            provider.broadcastConfig(id);
+        }
+        const data = await buildGuardDogListWithFriendInfoAsync(id, savedGids);
+        res.json({ ok: true, data });
+    });
+
+    // ============ 应用宝登录配置 ============
+    // 读取当前用户的应用宝配置
+    app.get('/api/yyb/config', (req, res) => {
+        const username = req.user && req.user.username;
+        if (!username) return res.status(401).json({ ok: false, error: '未登录' });
+        const cfg = store.getYybConfig ? store.getYybConfig(username) : {};
+        // 不返回明文 apiToken 给前端（只回显长度）
+        const safe = {
+            ...cfg,
+            accounts: (cfg.accounts || []).map(a => ({
+                openid: a.openid,
+                name: a.name || '',
+                apiTokenMask: a.apiToken ? a.apiToken.slice(0, 4) + '***' + a.apiToken.slice(-2) : '',
+            })),
+        };
+        res.json({ ok: true, data: safe });
+    });
+
+    // 保存当前用户的应用宝配置
+    app.post('/api/yyb/config', (req, res) => {
+        const username = req.user && req.user.username;
+        if (!username) return res.status(401).json({ ok: false, error: '未登录' });
+        const body = req.body || {};
+        // 取回已有配置，保留用户没改的 apiToken
+        const oldCfg = store.getYybConfig ? store.getYybConfig(username) : { accounts: [] };
+        const oldTokensByOpenid = new Map();
+        for (const acc of (oldCfg.accounts || [])) oldTokensByOpenid.set(acc.openid, acc.apiToken);
+        const newAccounts = [];
+        if (Array.isArray(body.accounts)) {
+            for (const a of body.accounts) {
+                if (!a || !a.openid) continue;
+                let apiToken = '';
+                if (a.apiToken && !/^\*+$/.test(a.apiToken)) {
+                    apiToken = String(a.apiToken).trim();
+                } else {
+                    apiToken = oldTokensByOpenid.get(a.openid) || '';
+                }
+                newAccounts.push({
+                    openid: String(a.openid).trim(),
+                    name: String(a.name || '').trim(),
+                    apiToken,
+                });
+            }
+        }
+        const saved = store.setYybConfig ? store.setYybConfig({
+            enabled: !!body.enabled,
+            endpoint: String(body.endpoint || '').trim(),
+            accounts: newAccounts,
+            autoReconnect: body.autoReconnect !== false,
+            reconnectIntervalMinutes: Math.max(0, Math.min(1440, Number(body.reconnectIntervalMinutes) || 0)),
+        }, username) : null;
+        res.json({ ok: true, data: saved });
+    });
+
+    // 立即拉取一个 openid 的 code
+    app.post('/api/yyb/fetch-code', async (req, res) => {
+        const username = req.user && req.user.username;
+        if (!username) return res.status(401).json({ ok: false, error: '未登录' });
+        const openid = String((req.body || {}).openid || '').trim();
+        if (!openid) return res.status(400).json({ ok: false, error: 'Missing openid' });
+        const yybLogin = require('../services/yyb-login');
+        const cfg = store.getYybConfig ? store.getYybConfig(username) : {};
+        try {
+            const r = await yybLogin.fetchFarmCodeByOpenid(cfg, openid);
+            res.json({ ok: true, data: { code: r.code, openid: r.openid, message: r.message } });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    // 立即拉取所有 openid 的 code
+    app.post('/api/yyb/fetch-all', async (req, res) => {
+        const username = req.user && req.user.username;
+        if (!username) return res.status(401).json({ ok: false, error: '未登录' });
+        const yybLogin = require('../services/yyb-login');
+        const cfg = store.getYybConfig ? store.getYybConfig(username) : {};
+        try {
+            const r = await yybLogin.fetchAllFarmCodes(cfg);
+            res.json({ ok: r.ok, data: r });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    // 启动/停止定时刷新
+    app.post('/api/yyb/refresh/start', (req, res) => {
+        const username = req.user && req.user.username;
+        if (!username) return res.status(401).json({ ok: false, error: '未登录' });
+        const yybRefresh = require('../services/yyb-refresh');
+        yybRefresh.start(username);
+        res.json({ ok: true, data: yybRefresh.status() });
+    });
+
+    app.post('/api/yyb/refresh/stop', (req, res) => {
+        const yybRefresh = require('../services/yyb-refresh');
+        yybRefresh.stop();
+        res.json({ ok: true });
+    });
+
+    app.get('/api/yyb/refresh/status', (req, res) => {
+        const yybRefresh = require('../services/yyb-refresh');
+        res.json({ ok: true, data: yybRefresh.status() });
+    });
+
     // ============ 好友GID管理 API ============
     function buildKnownFriendGidSettings(accountId) {
         return {

@@ -185,6 +185,10 @@ const DEFAULT_ACCOUNT_CONFIG = {
         20061,
     ],
     plantSeedExclude: [],
+    // 护主犬帮忙黑名单（不帮这些 GID）
+    friendGuardDogBlacklist: [],
+    // 护主犬帮忙白名单（只帮这些 GID，优先级高于黑名单）
+    friendGuardDogWhitelist: [],
     // 好友作物成熟后延迟多少秒再偷取（0=不延迟）
     stealDelaySeconds: 1,
     // 自己农田种植时是否随机地块顺序
@@ -241,6 +245,8 @@ const globalConfig = {
     systemConfig: null,
     // 全局微信配置
     globalWxConfig: null,
+    // 用户隔离的应用宝配置: { [username]: config }
+    userYybConfigs: {},
 };
 
 function normalizeOfflineReminder(input) {
@@ -332,6 +338,8 @@ function cloneAccountConfig(base = DEFAULT_ACCOUNT_CONFIG) {
         knownFriendGidSyncCooldownSec,
         friendsListCacheTtlSec,
         friendBlacklist: rawBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0),
+        friendGuardDogBlacklist: (Array.isArray(base.friendGuardDogBlacklist) ? base.friendGuardDogBlacklist : []).map(Number).filter(n => Number.isFinite(n) && n > 0),
+        friendGuardDogWhitelist: (Array.isArray(base.friendGuardDogWhitelist) ? base.friendGuardDogWhitelist : []).map(Number).filter(n => Number.isFinite(n) && n > 0),
         plantingStrategy: ALLOWED_PLANTING_STRATEGIES.includes(String(base.plantingStrategy || ''))
             ? String(base.plantingStrategy)
             : DEFAULT_ACCOUNT_CONFIG.plantingStrategy,
@@ -436,6 +444,13 @@ function normalizeAccountConfig(input, fallback = accountFallbackConfig) {
     // 种子排外列表
     if (Array.isArray(src.plantSeedExclude)) {
         cfg.plantSeedExclude = src.plantSeedExclude.map(Number).filter(n => Number.isFinite(n) && n > 0);
+    }
+    // 护主犬帮忙黑/白名单
+    if (Array.isArray(src.friendGuardDogBlacklist)) {
+        cfg.friendGuardDogBlacklist = src.friendGuardDogBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0);
+    }
+    if (Array.isArray(src.friendGuardDogWhitelist)) {
+        cfg.friendGuardDogWhitelist = src.friendGuardDogWhitelist.map(Number).filter(n => Number.isFinite(n) && n > 0);
     }
     // 偷取延迟
     if (src.stealDelaySeconds !== undefined && src.stealDelaySeconds !== null) {
@@ -617,6 +632,16 @@ function loadGlobalConfig() {
                     userIsolation: data.globalWxConfig.userIsolation !== false,
                 };
             }
+
+            // 加载用户隔离的应用宝配置
+            if (data.userYybConfigs && typeof data.userYybConfigs === 'object') {
+                globalConfig.userYybConfigs = {};
+                for (const [u, cfg] of Object.entries(data.userYybConfigs)) {
+                    if (u && cfg) {
+                        globalConfig.userYybConfigs[u] = normalizeYybConfig(cfg);
+                    }
+                }
+            }
         }
     } catch (e) {
         console.error('加载配置失败:', e.message);
@@ -651,6 +676,18 @@ function sanitizeGlobalConfigBeforeSave() {
         nextReminders[u] = normalizeOfflineReminder(cfg);
     }
     globalConfig.userOfflineReminders = nextReminders;
+
+    // 净化用户隔离的应用宝配置
+    const userYybs = (globalConfig.userYybConfigs && typeof globalConfig.userYybConfigs === 'object')
+        ? globalConfig.userYybConfigs
+        : {};
+    const nextYybs = {};
+    for (const [username, cfg] of Object.entries(userYybs)) {
+        const u = String(username || '').trim();
+        if (!u) continue;
+        nextYybs[u] = normalizeYybConfig(cfg);
+    }
+    globalConfig.userYybConfigs = nextYybs;
 }
 
 // 保存全局配置
@@ -1018,6 +1055,69 @@ function addFriendToBlacklist(accountId, gid) {
     return true;
 }
 
+// ============ 护主犬帮忙黑/白名单 ============
+function getFriendGuardDogBlacklist(accountId) {
+    return [...(getAccountConfigSnapshot(accountId).friendGuardDogBlacklist || [])];
+}
+
+function setFriendGuardDogBlacklist(accountId, list) {
+    const current = getAccountConfigSnapshot(accountId);
+    const next = normalizeAccountConfig(current, accountFallbackConfig);
+    next.friendGuardDogBlacklist = Array.isArray(list) ? list.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
+    setAccountConfigSnapshot(accountId, next);
+    return [...next.friendGuardDogBlacklist];
+}
+
+function addFriendGuardDogBlacklistGid(accountId, gid) {
+    const gidNum = Number(gid);
+    if (!gidNum || gidNum <= 0) return false;
+    const current = getFriendGuardDogBlacklist(accountId);
+    if (current.includes(gidNum)) return false;
+    const next = [...current, gidNum];
+    setFriendGuardDogBlacklist(accountId, next);
+    return true;
+}
+
+function removeFriendGuardDogBlacklistGid(accountId, gid) {
+    const gidNum = Number(gid);
+    if (!gidNum || gidNum <= 0) return false;
+    const current = getFriendGuardDogBlacklist(accountId);
+    const next = current.filter(g => g !== gidNum);
+    setFriendGuardDogBlacklist(accountId, next);
+    return current.length !== next.length;
+}
+
+function getFriendGuardDogWhitelist(accountId) {
+    return [...(getAccountConfigSnapshot(accountId).friendGuardDogWhitelist || [])];
+}
+
+function setFriendGuardDogWhitelist(accountId, list) {
+    const current = getAccountConfigSnapshot(accountId);
+    const next = normalizeAccountConfig(current, accountFallbackConfig);
+    next.friendGuardDogWhitelist = Array.isArray(list) ? list.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
+    setAccountConfigSnapshot(accountId, next);
+    return [...next.friendGuardDogWhitelist];
+}
+
+function addFriendGuardDogWhitelistGid(accountId, gid) {
+    const gidNum = Number(gid);
+    if (!gidNum || gidNum <= 0) return false;
+    const current = getFriendGuardDogWhitelist(accountId);
+    if (current.includes(gidNum)) return false;
+    const next = [...current, gidNum];
+    setFriendGuardDogWhitelist(accountId, next);
+    return true;
+}
+
+function removeFriendGuardDogWhitelistGid(accountId, gid) {
+    const gidNum = Number(gid);
+    if (!gidNum || gidNum <= 0) return false;
+    const current = getFriendGuardDogWhitelist(accountId);
+    const next = current.filter(g => g !== gidNum);
+    setFriendGuardDogWhitelist(accountId, next);
+    return current.length !== next.length;
+}
+
 // ============ 偷取延迟 ============
 function getStealDelaySeconds(accountId) {
     return Math.max(0, Math.min(300, Number(getAccountConfigSnapshot(accountId).stealDelaySeconds) || 0));
@@ -1241,6 +1341,7 @@ function deleteAccountsByUser(username) {
 function deleteUserConfig(username) {
     // 删除用户特定的配置
     deleteUserOfflineReminder(username);
+    deleteUserYybConfig(username);
 }
 
 function getDefaultAccountConfig() {
@@ -1315,6 +1416,61 @@ function getActivityStatus() {
     };
 }
 
+const DEFAULT_YYB_CONFIG = {
+    enabled: false,
+    endpoint: '',
+    accounts: [],
+    autoReconnect: true,
+    reconnectIntervalMinutes: 0,
+};
+
+function normalizeYybAccountEntry(input) {
+    if (!input || typeof input !== 'object') return null;
+    const openid = String(input.openid || '').trim();
+    if (!openid) return null;
+    return {
+        openid,
+        apiToken: String(input.apiToken || '').trim(),
+        name: input.name ? String(input.name).trim() : '',
+    };
+}
+
+function normalizeYybConfig(input) {
+    const src = (input && typeof input === 'object') ? input : {};
+    const accounts = Array.isArray(src.accounts)
+        ? src.accounts.map(normalizeYybAccountEntry).filter(Boolean)
+        : [];
+    return {
+        enabled: !!src.enabled,
+        endpoint: String(src.endpoint || '').trim(),
+        accounts,
+        autoReconnect: src.autoReconnect !== false,
+        reconnectIntervalMinutes: Math.max(0, Math.min(1440, Number(src.reconnectIntervalMinutes) || 0)),
+    };
+}
+
+function getYybConfig(username) {
+    if (!username) return { ...DEFAULT_YYB_CONFIG };
+    const cfg = globalConfig.userYybConfigs && globalConfig.userYybConfigs[username];
+    return cfg ? normalizeYybConfig(cfg) : { ...DEFAULT_YYB_CONFIG };
+}
+
+function setYybConfig(cfg, username) {
+    if (!username) return { ...DEFAULT_YYB_CONFIG };
+    const normalized = normalizeYybConfig(cfg);
+    if (!globalConfig.userYybConfigs) globalConfig.userYybConfigs = {};
+    globalConfig.userYybConfigs[username] = normalized;
+    saveGlobalConfig();
+    return getYybConfig(username);
+}
+
+function deleteUserYybConfig(username) {
+    if (globalConfig.userYybConfigs && globalConfig.userYybConfigs[username]) {
+        delete globalConfig.userYybConfigs[username];
+        saveGlobalConfig();
+    }
+}
+
 const DEFAULT_WX_CONFIG = {
     enabled: true,
     apiBase: 'http://127.0.0.1:8059/api',
@@ -1365,6 +1521,14 @@ module.exports = {
     getFriendBlacklist,
     setFriendBlacklist,
     addFriendToBlacklist,
+    getFriendGuardDogBlacklist,
+    setFriendGuardDogBlacklist,
+    addFriendGuardDogBlacklistGid,
+    removeFriendGuardDogBlacklistGid,
+    getFriendGuardDogWhitelist,
+    setFriendGuardDogWhitelist,
+    addFriendGuardDogWhitelistGid,
+    removeFriendGuardDogWhitelistGid,
     getStealDelaySeconds,
     getPlantOrderRandom,
     getPlantDelaySeconds,
@@ -1409,4 +1573,8 @@ module.exports = {
     getGlobalWxConfig,
     setGlobalWxConfig,
     DEFAULT_WX_CONFIG,
+    // 应用宝配置（用户隔离）
+    getYybConfig,
+    setYybConfig,
+    deleteUserYybConfig,
 };
