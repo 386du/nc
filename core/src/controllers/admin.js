@@ -1217,6 +1217,96 @@ app.use('/api', (req, res, next) => {
         res.json({ ok: true, data: yybRefresh.status() });
     });
 
+    // ============ 386du 兼容端点 ============
+    // GET /api/user/yyb-config - 加载当前用户配置(走 store.userYybConfigs[username])
+    app.get('/api/user/yyb-config', (req, res) => {
+        const username = (req.currentUser && req.currentUser.username) || (req.user && req.user.username);
+        if (!username) return res.status(401).json({ ok: false, error: '未登录' });
+        const cfg = store.getYybConfig ? store.getYybConfig(username) : { accounts: [] };
+        // 不返回明文 apiToken
+        const safeAccounts = (cfg.accounts || []).map(a => ({
+            openid: a.openid,
+            name: a.name || '',
+            apiToken: a.apiToken ? `${a.apiToken.slice(0, 4)  }***${  a.apiToken.slice(-2)}` : '',
+        }));
+        res.json({
+            ok: true,
+            config: {
+                enabled: !!cfg.enabled,
+                endpoint: cfg.endpoint || '',
+                reconnectIntervalMinutes: cfg.reconnectIntervalMinutes || 0,
+                autoReconnect: cfg.autoReconnect !== false,
+                accounts: safeAccounts,
+            },
+        });
+    });
+
+    // POST /api/user/yyb-config - 保存当前用户配置
+    app.post('/api/user/yyb-config', (req, res) => {
+        const username = (req.currentUser && req.currentUser.username) || (req.user && req.user.username);
+        if (!username) return res.status(401).json({ ok: false, error: '未登录' });
+        const body = req.body || {};
+        // 合并已有 token(避免明文回传导致覆盖)
+        const oldCfg = store.getYybConfig ? store.getYybConfig(username) : { accounts: [] };
+        const oldTokens = new Map();
+        for (const acc of (oldCfg.accounts || [])) oldTokens.set(acc.openid, acc.apiToken);
+        const newAccounts = [];
+        if (Array.isArray(body.accounts)) {
+            for (const a of body.accounts) {
+                if (!a || !a.openid) continue;
+                let apiToken = '';
+                if (a.apiToken && !/^\*+$/.test(a.apiToken)) {
+                    apiToken = String(a.apiToken).trim();
+                } else {
+                    apiToken = oldTokens.get(a.openid) || '';
+                }
+                newAccounts.push({
+                    openid: String(a.openid).trim(),
+                    name: String(a.name || '').trim(),
+                    apiToken,
+                });
+            }
+        }
+        const saved = store.setYybConfig({
+            enabled: !!body.enabled,
+            endpoint: String(body.endpoint || '').trim(),
+            accounts: newAccounts,
+            autoReconnect: body.autoReconnect !== false,
+            reconnectIntervalMinutes: Math.max(0, Math.min(1440, Number(body.reconnectIntervalMinutes) || 0)),
+        }, username);
+        const safeAccounts = (saved.accounts || []).map(a => ({
+            openid: a.openid,
+            name: a.name || '',
+            apiToken: a.apiToken ? `${a.apiToken.slice(0, 4)  }***${  a.apiToken.slice(-2)}` : '',
+        }));
+        res.json({
+            ok: true,
+            config: {
+                enabled: !!saved.enabled,
+                endpoint: saved.endpoint || '',
+                reconnectIntervalMinutes: saved.reconnectIntervalMinutes || 0,
+                autoReconnect: saved.autoReconnect !== false,
+                accounts: safeAccounts,
+            },
+        });
+    });
+
+    // POST /api/yyb/code - 拉单个 openid 的 code(386du 接口名)
+    app.post('/api/yyb/code', async (req, res) => {
+        const username = (req.currentUser && req.currentUser.username) || (req.user && req.user.username);
+        if (!username) return res.status(401).json({ ok: false, error: '未登录' });
+        const openid = String((req.body || {}).openid || '').trim();
+        if (!openid) return res.status(400).json({ ok: false, error: 'Missing openid' });
+        const yybLogin = require('../services/yyb-login');
+        const cfg = store.getYybConfig ? store.getYybConfig(username) : {};
+        try {
+            const r = await yybLogin.fetchFarmCodeByOpenid(cfg, openid);
+            res.json({ ok: true, code: r.code, openid: r.openid, message: r.message });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
     // ============ 好友GID管理 API ============
     function buildKnownFriendGidSettings(accountId) {
         return {

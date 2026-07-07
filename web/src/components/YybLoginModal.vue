@@ -1,329 +1,180 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import api from '@/api'
+import { useAccountStore } from '@/stores/account'
 import { useToastStore } from '@/stores/toast'
+import { useYybLoginStore } from '@/stores/yyb-login'
 
 const props = defineProps<{
-    show: boolean
+  show: boolean
 }>()
 
 const emit = defineEmits(['close', 'saved'])
 
+const yybStore = useYybLoginStore()
+const accountStore = useAccountStore()
 const toast = useToastStore()
 
-interface YybAccount {
-    openid: string
-    name: string
-    apiToken: string
-    apiTokenMask?: string
+const loadingOpenId = ref<string | null>(null)
+const accountNames = ref<Record<string, string>>({})
+
+function resetNames() {
+  const next: Record<string, string> = {}
+  for (const a of yybStore.config.accounts) {
+    if (!a || !a.openid) continue
+    next[a.openid] = accountNames.value[a.openid] || a.name || ''
+  }
+  accountNames.value = next
 }
 
-interface YybConfig {
-    enabled: boolean
-    endpoint: string
-    accounts: YybAccount[]
-    autoReconnect: boolean
-    reconnectIntervalMinutes: number
+watch(() => props.show, (show) => {
+  if (show) {
+    accountStore.fetchAccounts()
+    yybStore.loadConfig().then(resetNames)
+  }
+})
+
+const panelStyle = computed(() => ({
+  background: 'var(--theme-bg)',
+  boxShadow: '0 8px 32px rgba(0,0,0,0.24), 0 0 0 1px rgba(0,0,0,0.08)',
+  maxHeight: 'min(85dvh, 700px)',
+}))
+
+function displayName(openid: string): string {
+  const cfgName = yybStore.config.accounts.find((a: any) => a.openid === openid)?.name
+  if (cfgName) return cfgName
+  return `应用宝_${openid.slice(-6)}`
 }
 
-const config = ref<YybConfig | null>(null)
-const saving = ref(false)
-const fetching = ref<Record<string, boolean>>({})
-const lastCodes = ref<Record<string, string>>({})
-const refreshStatus = ref<{ running: boolean; username: string; intervalMs: number }>({ running: false, username: '', intervalMs: 0 })
-
-async function loadConfig() {
-    try {
-        const res = await api.get('/api/yyb/config')
-        if (res.data.ok) config.value = res.data.data
+async function loginOne(openid: string) {
+  loadingOpenId.value = openid
+  try {
+    const inputName = accountNames.value[openid]?.trim() || ''
+    const name = inputName || displayName(openid)
+    const result = await yybStore.reloginAccount(accountStore, openid, name)
+    if (!result.ok) {
+      toast.error(result.error || '登录失败')
+      return false
     }
-    catch { /* ignore */ }
+
+    toast.success(`已${accountStore.accounts.some((a: any) => a.openid === openid) ? '更新' : '添加'}并启动账号: ${name}`)
+    emit('saved')
+    return true
+  }
+  finally {
+    loadingOpenId.value = null
+  }
 }
 
-async function loadRefreshStatus() {
-    try {
-        const res = await api.get('/api/yyb/refresh/status')
-        if (res.data.ok) refreshStatus.value = res.data.data || refreshStatus.value
+async function loginAll() {
+  const openIds = yybStore.config.accounts.filter((a: any) => a.openid).map((a: any) => a.openid)
+  if (openIds.length === 0) {
+    toast.warning('请先配置 OpenID')
+    return
+  }
+  loadingOpenId.value = 'all'
+  let successCount = 0
+  try {
+    for (const openid of openIds) {
+      const ok = await loginOne(openid)
+      if (ok)
+        successCount++
     }
-    catch { /* ignore */ }
-}
-
-async function fetchOne(openid: string) {
-    fetching.value[openid] = true
-    try {
-        const res = await api.post('/api/yyb/fetch-code', { openid })
-        if (res.data.ok && res.data.data?.code) {
-            lastCodes.value[openid] = res.data.data.code
-            toast.success(`已拉取 ${openid} 的 code`)
-            // 拉完 code 后让用户选择添加/更新账号
-            await tryAddAccount(openid, res.data.data.code)
-        }
-    }
-    catch (e: any) {
-        const err = e?.response?.data?.error || e?.message || '拉取失败'
-        toast.error(`拉取失败: ${err}`)
-    }
-    finally {
-        fetching.value[openid] = false
-    }
-}
-
-async function tryAddAccount(openid: string, code: string) {
-    try {
-        // 调后端"用 code 添加/更新账号"接口
-        const res = await api.post('/api/yyb/add-account', { openid, code })
-        if (res.data.ok) {
-            toast.success(res.data.message || '账号已添加/更新')
-            emit('saved')
-        }
-    }
-    catch (e: any) {
-        const err = e?.response?.data?.error || e?.message || '添加账号失败'
-        toast.error(`添加账号失败: ${err}`)
-    }
-}
-
-async function fetchAll() {
-    try {
-        const res = await api.post('/api/yyb/fetch-all')
-        if (res.data.ok && res.data.data) {
-            for (const r of res.data.data.results || []) {
-                if (r.ok && r.code) lastCodes.value[r.openid] = r.code
-            }
-            const { okCount, total } = res.data.data
-            toast[okCount === total ? 'success' : 'warning'](`拉取完成: ${okCount}/${total}`)
-        }
-    }
-    catch (e: any) {
-        toast.error(`批量拉取失败: ${e?.response?.data?.error || e?.message}`)
-    }
-}
-
-async function startRefresh() {
-    saving.value = true
-    try {
-        const res = await api.post('/api/yyb/refresh/start')
-        if (res.data.ok) {
-            refreshStatus.value = res.data.data
-            toast.success('已启动定时刷新')
-        }
-    }
-    catch (e: any) {
-        toast.error(`启动失败: ${e?.response?.data?.error || e?.message}`)
-    }
-    finally {
-        saving.value = false
-    }
-}
-
-async function stopRefresh() {
-    saving.value = true
-    try {
-        await api.post('/api/yyb/refresh/stop')
-        refreshStatus.value.running = false
-        toast.info('已停止定时刷新')
-    }
-    catch (e: any) {
-        toast.error(`停止失败: ${e?.response?.data?.error || e?.message}`)
-    }
-    finally {
-        saving.value = false
-    }
+  }
+  finally {
+    loadingOpenId.value = null
+  }
+  toast.success(`一键登录完成，成功 ${successCount}/${openIds.length}`)
+  emit('close')
 }
 
 function close() {
-    emit('close')
+  emit('close')
 }
-
-onMounted(() => {
-    if (props.show) {
-        loadConfig()
-        loadRefreshStatus()
-    }
-})
 </script>
 
 <template>
-    <div v-if="show" class="yyb-modal-overlay" @click.self="close">
-        <div class="yyb-modal">
-            <div class="yyb-modal-header">
-                <h2>应用宝一键登录</h2>
-                <button class="yyb-modal-close" @click="close">×</button>
-            </div>
-            <div class="yyb-modal-body">
-                <div v-if="!config" class="empty-tip">加载中...</div>
-                <template v-else>
-                    <div v-if="!config.enabled" class="warn-tip">
-                        应用宝功能未启用,请先在「应用宝配置」中启用。
-                    </div>
-                    <div v-else-if="!config.endpoint" class="warn-tip">
-                        尚未配置接口地址,请先在「应用宝配置」中填写。
-                    </div>
-                    <div v-else-if="!config.accounts?.length" class="warn-tip">
-                        尚未添加任何 OpenID,请先在「应用宝配置」中添加。
-                    </div>
-
-                    <div v-if="config?.accounts?.length" class="form-section">
-                        <div class="form-row list-header">
-                            <label>选择 OpenID 一键登录</label>
-                            <BaseButton size="sm" @click="fetchAll">批量拉取</BaseButton>
-                        </div>
-                        <div class="account-list">
-                            <div v-for="acc in config.accounts" :key="acc.openid" class="account-row">
-                                <div class="account-info">
-                                    <div class="account-name">{{ acc.name || '(未命名)' }}</div>
-                                    <div class="account-openid">{{ acc.openid }}</div>
-                                    <div v-if="lastCodes[acc.openid]" class="last-code">
-                                        最近 code: <code>{{ (lastCodes[acc.openid] ?? '').slice(0, 8) }}***</code>
-                                    </div>
-                                </div>
-                                <BaseButton size="sm" :loading="fetching[acc.openid]" @click="fetchOne(acc.openid)">
-                                    一键登录
-                                </BaseButton>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="refresh-status">
-                        定时刷新状态:<strong>{{ refreshStatus.running ? '运行中' : '已停止' }}</strong>
-                        <span v-if="refreshStatus.running">({{ Math.round(refreshStatus.intervalMs / 60000) }} 分钟一次)</span>
-                    </div>
-                </template>
-            </div>
-            <div class="yyb-modal-footer">
-                <BaseButton v-if="refreshStatus.running" variant="danger" :loading="saving" @click="stopRefresh">停止定时刷新</BaseButton>
-                <BaseButton v-else variant="secondary" :loading="saving" @click="startRefresh">启动定时刷新</BaseButton>
-                <BaseButton variant="secondary" @click="close">关闭</BaseButton>
-            </div>
+  <Teleport to="body">
+    <div v-if="show" class="fixed inset-0 z-50">
+      <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click.self="close" />
+      <div
+        class="absolute left-1/2 top-1/2 z-10 max-w-md w-[calc(100%-2rem)] flex flex-col rounded-2xl -translate-x-1/2 -translate-y-1/2"
+        :style="panelStyle"
+        @click.stop
+      >
+        <div class="flex shrink-0 items-center justify-between p-4" style="border-bottom: 1px solid color-mix(in srgb, var(--theme-text) 10%, transparent)">
+          <div>
+            <h3 class="text-lg font-semibold" style="color: var(--theme-primary, var(--theme-text))">
+              应用宝一键登录
+            </h3>
+            <p class="mt-1 text-xs opacity-70" style="color: var(--theme-text)">
+              为已配置的 OpenID 自动获取 Code 并添加/更新账号
+            </p>
+          </div>
+          <BaseButton variant="ghost" class="!p-1" @click="close">
+            <div class="i-carbon-close text-xl" :style="{ color: 'var(--theme-text)' }" />
+          </BaseButton>
         </div>
-    </div>
-</template>
 
-<style scoped>
-.yyb-modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.yyb-modal {
-    background: #fff;
-    border-radius: 12px;
-    width: 640px;
-    max-width: 90vw;
-    max-height: 85vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-.yyb-modal-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid #eee;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-.yyb-modal-header h2 {
-    margin: 0;
-    font-size: 18px;
-}
-.yyb-modal-close {
-    background: none;
-    border: 0;
-    font-size: 24px;
-    cursor: pointer;
-}
-.yyb-modal-body {
-    padding: 16px 20px;
-    overflow-y: auto;
-    flex: 1;
-}
-.yyb-modal-footer {
-    padding: 12px 20px;
-    border-top: 1px solid #eee;
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-}
-.warn-tip {
-    background: #fff7e6;
-    border: 1px solid #ffd591;
-    color: #874d00;
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 13px;
-    margin-bottom: 12px;
-}
-.form-section {
-    margin-bottom: 16px;
-}
-.form-row {
-    margin-bottom: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-.form-row.list-header {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-}
-.form-row label {
-    font-size: 13px;
-    color: #555;
-}
-.empty-tip {
-    color: #999;
-    text-align: center;
-    padding: 20px;
-    background: #f8f8f8;
-    border-radius: 8px;
-}
-.account-list {
-    border: 1px solid #eee;
-    border-radius: 8px;
-    overflow: hidden;
-}
-.account-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px;
-    border-bottom: 1px solid #f0f0f0;
-}
-.account-row:last-child {
-    border-bottom: 0;
-}
-.account-info {
-    flex: 1;
-}
-.account-name {
-    font-weight: 600;
-    font-size: 14px;
-}
-.account-openid {
-    color: #888;
-    font-size: 12px;
-    font-family: monospace;
-}
-.last-code {
-    margin-top: 4px;
-    color: #0a0;
-    font-size: 12px;
-}
-.refresh-status {
-    background: #f0f8ff;
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 13px;
-    color: #333;
-}
-.refresh-status strong {
-    color: #1976d2;
-    margin: 0 4px;
-}
-</style>
+        <div class="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
+          <div v-if="yybStore.loading && yybStore.config.accounts.length === 0" class="py-8 text-center text-sm text-gray-500">
+            加载中...
+          </div>
+
+          <div v-else-if="yybStore.config.accounts.length === 0" class="py-8 text-center text-sm text-gray-500">
+            尚未配置 OpenID，请先进入"应用宝配置"添加
+          </div>
+
+          <div v-else class="space-y-3">
+            <div
+              v-for="acc in yybStore.config.accounts"
+              v-show="acc.openid"
+              :key="acc.openid"
+              class="border border-gray-200 rounded-xl bg-white p-3 space-y-2 dark:border-gray-600 dark:bg-gray-800"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium" style="color: var(--theme-text)">
+                    {{ displayName(acc.openid) }}
+                  </div>
+                  <div class="text-xs opacity-60 truncate font-mono" style="color: var(--theme-text)">
+                    {{ acc.openid }}
+                  </div>
+                </div>
+                <BaseButton
+                  variant="primary"
+                  size="sm"
+                  :loading="loadingOpenId === acc.openid"
+                  :disabled="loadingOpenId !== null"
+                  @click="loginOne(acc.openid)"
+                >
+                  登录
+                </BaseButton>
+              </div>
+              <input
+                v-model="accountNames[acc.openid]"
+                placeholder="账号备注（可选）"
+                class="farm-input w-full rounded-xl border-3 border-black/10 bg-white px-3 py-2 text-sm outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              >
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-2 border-t pt-3 dark:border-gray-700">
+            <BaseButton variant="outline" @click="close">
+              关闭
+            </BaseButton>
+            <BaseButton
+              v-if="yybStore.config.accounts.length > 0"
+              variant="primary"
+              :loading="loadingOpenId === 'all'"
+              :disabled="loadingOpenId !== null"
+              @click="loginAll"
+            >
+              一键登录全部
+            </BaseButton>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+</template>
