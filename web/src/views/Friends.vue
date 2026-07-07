@@ -10,7 +10,6 @@ import { useFriendStore } from '@/stores/friend'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
 import GuardDogPanel from '@/components/GuardDogPanel.vue'
-import YybLoginModal from '@/components/YybLoginModal.vue'
 
 const accountStore = useAccountStore()
 const friendStore = useFriendStore()
@@ -88,9 +87,8 @@ function openGidListModal() {
 
 const TABS = [
   { key: 'friends', label: '好友列表', icon: 'i-carbon-user-multiple' },
-  { key: 'blacklist', label: '好友黑名单', icon: 'i-carbon-list-blocked' },
   { key: 'guard-dog', label: '护主犬', icon: 'i-carbon-dog-walker' },
-  { key: 'yyb', label: '应用宝', icon: 'i-carbon-connect' },
+  { key: 'blacklist', label: '好友黑名单', icon: 'i-carbon-list-blocked' },
   { key: 'visitors', label: '最近访客', icon: 'i-carbon-user-activity' },
 ] as const
 
@@ -105,7 +103,6 @@ const pendingAction = ref<(() => Promise<any>) | null>(null)
 const avatarErrorKeys = ref<Set<string>>(new Set())
 const searchKeyword = ref('')
 const localKnownFriendGidSyncCooldownSec = ref(300)
-const showYybModal = ref(false)
 const localFriendsListCacheTtlSec = ref(60)
 const showBatchAddGidModal = ref(false)
 const batchGidInput = ref('')
@@ -937,24 +934,6 @@ async function handleBatchAddKnownFriendGids() {
         <GuardDogPanel />
       </div>
 
-      <div v-else-if="activeTab === 'yyb'" class="space-y-4">
-        <div class="rounded-lg bg-white p-6 shadow dark:bg-gray-800">
-          <div class="flex items-center gap-3 mb-3">
-            <div class="i-carbon-connect text-3xl text-blue-500" />
-            <div>
-              <h2 class="text-lg font-semibold">应用宝自动登录</h2>
-              <p class="text-sm text-gray-500">通过应用宝 API 拉取 farm code 实现扫码自动续期登录</p>
-            </div>
-          </div>
-          <button
-            class="rounded-lg bg-blue-500 px-4 py-2 text-white hover:bg-blue-600"
-            @click="showYybModal = true"
-          >
-            打开应用宝配置
-          </button>
-        </div>
-      </div>
-
       <div v-else-if="activeTab === 'visitors'" class="space-y-4">
         <div class="flex flex-wrap items-center gap-2">
           <button
@@ -1044,11 +1023,6 @@ async function handleBatchAddKnownFriendGids() {
       :message="confirmMessage"
       @confirm="onConfirm"
       @cancel="!confirmLoading && (showConfirm = false)"
-    />
-
-    <YybLoginModal
-      :show="showYybModal"
-      @close="showYybModal = false"
     />
 
     <Teleport to="body">

@@ -1169,6 +1169,33 @@ app.use('/api', (req, res, next) => {
         }
     });
 
+    // 应用宝一键登录:用拉到的 code 添加/更新一个账号
+    app.post('/api/yyb/add-account', (req, res) => {
+        const username = (req.currentUser && req.currentUser.username) || (req.user && req.user.username);
+        if (!username) return res.status(401).json({ ok: false, error: '未登录' });
+        const openid = String((req.body || {}).openid || '').trim();
+        const code = String((req.body || {}).code || '').trim();
+        if (!openid) return res.status(400).json({ ok: false, error: 'Missing openid' });
+        if (!code) return res.status(400).json({ ok: false, error: 'Missing code' });
+        try {
+            // 用 openid 末 6 位作默认名
+            const tail = openid.slice(-6) || openid;
+            // 检查是否已有同名 openid 账号（按 name 关联）
+            const accounts = getAccountList();
+            const existing = (accounts.accounts || []).find(a => String(a.name) === String(tail));
+            const payload = existing
+                ? { id: existing.id, name: tail, code, platform: 'qq' }
+                : { name: tail, code, platform: 'qq' };
+            // 关联当前用户
+            payload.username = username;
+            const data = addOrUpdateAccount(payload);
+            const accountId = existing ? existing.id : String(data.accounts[data.accounts.length - 1].id);
+            res.json({ ok: true, data: { accountId, isUpdate: !!existing }, message: existing ? '已更新账号' : '已添加账号' });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
     // 启动/停止定时刷新
     app.post('/api/yyb/refresh/start', (req, res) => {
         const username = (req.currentUser && req.currentUser.username) || (req.user && req.user.username);

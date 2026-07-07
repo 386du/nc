@@ -582,6 +582,7 @@ const localAutomationSettings = ref({
     friend_help: false,
     friend_bad: false,
     friend_help_exp_limit: false,
+    friend_help_only_guard_dog: false,
     fertilizer_gift: false,
     fertilizer_buy_organic: false,
     fertilizer_buy_normal: false,
@@ -620,6 +621,7 @@ function syncLocalAutomationSettings() {
         friend_help: false,
         friend_bad: false,
         friend_help_exp_limit: false,
+        friend_help_only_guard_dog: false,
         fertilizer_gift: false,
         fertilizer_buy_organic: false,
         fertilizer_buy_normal: false,
@@ -642,6 +644,7 @@ function syncLocalAutomationSettings() {
         friend_help: false,
         friend_bad: false,
         friend_help_exp_limit: false,
+        friend_help_only_guard_dog: false,
         fertilizer_gift: false,
         fertilizer_buy_organic: false,
         fertilizer_buy_normal: false,
@@ -1456,6 +1459,7 @@ async function handleTestOffline() {
               <BaseSwitch v-model="localAutomationSettings.automation.friend_help" label="自动帮忙" />
               <BaseSwitch v-model="localAutomationSettings.automation.friend_bad" label="自动捣乱" />
               <BaseSwitch v-model="localAutomationSettings.automation.friend_help_exp_limit" label="经验满不帮忙" />
+              <BaseSwitch v-model="localAutomationSettings.automation.friend_help_only_guard_dog" label="只帮护主犬" />
             </div>
 
             <div class="space-y-3">

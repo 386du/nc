@@ -135,6 +135,7 @@ const DEFAULT_ACCOUNT_CONFIG = {
         friend_steal: true, // 偷菜
         friend_help: true,  // 帮忙
         friend_bad: false,  // 捣乱(放虫草)
+        friend_help_only_guard_dog: false, // 只帮携带护主犬的好友（开启后帮忙前会校验 brief_dog_info）
         task: true,
         // 以下功能默认启用，不再提供开关
         // email: true,
