@@ -1088,7 +1088,7 @@ app.use('/api', (req, res, next) => {
     // ============ 应用宝登录配置 ============
     // 读取当前用户的应用宝配置
     app.get('/api/yyb/config', (req, res) => {
-        const username = req.user && req.user.username;
+        const username = (req.currentUser && req.currentUser.username) || (req.user && req.user.username);
         if (!username) return res.status(401).json({ ok: false, error: '未登录' });
         const cfg = store.getYybConfig ? store.getYybConfig(username) : {};
         // 不返回明文 apiToken 给前端（只回显长度）
@@ -1105,7 +1105,7 @@ app.use('/api', (req, res, next) => {
 
     // 保存当前用户的应用宝配置
     app.post('/api/yyb/config', (req, res) => {
-        const username = req.user && req.user.username;
+        const username = (req.currentUser && req.currentUser.username) || (req.user && req.user.username);
         if (!username) return res.status(401).json({ ok: false, error: '未登录' });
         const body = req.body || {};
         // 取回已有配置，保留用户没改的 apiToken
@@ -1141,7 +1141,7 @@ app.use('/api', (req, res, next) => {
 
     // 立即拉取一个 openid 的 code
     app.post('/api/yyb/fetch-code', async (req, res) => {
-        const username = req.user && req.user.username;
+        const username = (req.currentUser && req.currentUser.username) || (req.user && req.user.username);
         if (!username) return res.status(401).json({ ok: false, error: '未登录' });
         const openid = String((req.body || {}).openid || '').trim();
         if (!openid) return res.status(400).json({ ok: false, error: 'Missing openid' });
@@ -1157,7 +1157,7 @@ app.use('/api', (req, res, next) => {
 
     // 立即拉取所有 openid 的 code
     app.post('/api/yyb/fetch-all', async (req, res) => {
-        const username = req.user && req.user.username;
+        const username = (req.currentUser && req.currentUser.username) || (req.user && req.user.username);
         if (!username) return res.status(401).json({ ok: false, error: '未登录' });
         const yybLogin = require('../services/yyb-login');
         const cfg = store.getYybConfig ? store.getYybConfig(username) : {};
@@ -1171,7 +1171,7 @@ app.use('/api', (req, res, next) => {
 
     // 启动/停止定时刷新
     app.post('/api/yyb/refresh/start', (req, res) => {
-        const username = req.user && req.user.username;
+        const username = (req.currentUser && req.currentUser.username) || (req.user && req.user.username);
         if (!username) return res.status(401).json({ ok: false, error: '未登录' });
         const yybRefresh = require('../services/yyb-refresh');
         yybRefresh.start(username);
