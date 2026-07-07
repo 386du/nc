@@ -127,7 +127,7 @@ export const useYybLoginStore = defineStore('yyb-login', () => {
           await accountStore.updateAccount(String(existing.id), {
             name,
             code: result.code,
-            platform: 'qq',
+            platform: 'wx',
             loginType: 'yyb',
             openid,
           })
@@ -136,7 +136,7 @@ export const useYybLoginStore = defineStore('yyb-login', () => {
           await accountStore.addAccount({
             name,
             code: result.code,
-            platform: 'qq',
+            platform: 'wx',
             loginType: 'yyb',
             openid,
           })
