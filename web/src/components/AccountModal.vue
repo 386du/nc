@@ -12,12 +12,12 @@ const props = defineProps<{
   editData?: any
 }>()
 
-const emit = defineEmits(['close', 'saved', 'yyb-login', 'yyb-config'])
+const emit = defineEmits(['close', 'saved'])
 
 const wxLoginStore = useWxLoginStore()
 
-// 标签页：wx-微信扫码, manual-手动填码, yyb-应用宝对接
-const activeTab = ref<'wx' | 'manual' | 'yyb'>('manual')
+// 标签页：wx-微信扫码, manual-手动填码
+const activeTab = ref<'wx' | 'manual'>('manual')
 const loading = ref(false)
 const errorMessage = ref('')
 
@@ -262,17 +262,6 @@ watch(activeTab, (tab) => {
           >
             微信扫码
           </button>
-          <button
-            class="flex-1 py-2 text-center text-sm font-medium transition-colors"
-            :class="activeTab === 'yyb' ? 'border-b-2' : 'opacity-60'"
-            :style="{
-              color: activeTab === 'yyb' ? 'var(--theme-primary)' : 'var(--theme-text)',
-              borderColor: 'var(--theme-primary)',
-            }"
-            @click="activeTab = 'yyb'"
-          >
-            应用宝对接
-          </button>
         </div>
 
         <!-- 微信扫码 Tab -->
@@ -364,28 +353,6 @@ watch(activeTab, (tab) => {
               {{ editData ? '保存' : '添加' }}
             </BaseButton>
           </div>
-        </div>
-
-        <!-- 应用宝对接 Tab -->
-        <div v-else-if="activeTab === 'yyb'" class="space-y-4">
-          <div
-            class="rounded p-3 text-sm"
-            :style="{ background: 'color-mix(in srgb, var(--theme-primary) 8%, transparent)' }"
-          >
-            <p class="mb-1 font-medium">应用宝一键登录</p>
-            <p class="text-xs opacity-70">通过应用宝外部 API 根据 OpenID 自动获取 Code 并添加/更新账号。</p>
-          </div>
-          <div class="flex flex-col gap-2">
-            <BaseButton variant="primary" @click="emit('yyb-login'); close()">
-              打开应用宝一键登录
-            </BaseButton>
-            <BaseButton variant="outline" @click="emit('yyb-config'); close()">
-              应用宝配置
-            </BaseButton>
-          </div>
-          <p class="text-xs opacity-60">
-            需先在「应用宝配置」中填写接口地址并为每个 OpenID 绑定 API Token
-          </p>
         </div>
       </div>
     </div>

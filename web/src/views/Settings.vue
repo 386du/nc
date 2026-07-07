@@ -6,6 +6,8 @@ import { useRouter } from 'vue-router'
 import api from '@/api'
 import AccountModal from '@/components/AccountModal.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import YybConfigModal from '@/components/YybConfigModal.vue'
+import YybLoginModal from '@/components/YybLoginModal.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
@@ -66,6 +68,9 @@ const accountToDelete = ref<any>(null)
 const showClearStoppedConfirm = ref(false)
 const clearStoppedLoading = ref(false)
 const kickoutRefreshSavingId = ref('')
+// 应用宝弹窗状态
+const showYybConfigModal = ref(false)
+const showYybLoginModal = ref(false)
 
 const isAccountOpsDisabled = computed(() => !userStore.isAdmin && userStore.isExpired)
 const quotaLimit = computed(() => {
@@ -925,6 +930,24 @@ async function handleTestOffline() {
             </h3>
             <div class="flex flex-wrap gap-2">
               <BaseButton
+                variant="secondary"
+                size="sm"
+                @click="showYybConfigModal = true"
+              >
+                <div class="i-carbon-settings mr-2" />
+                <span class="hidden sm:inline">应用宝配置</span>
+                <span class="sm:hidden">宝配置</span>
+              </BaseButton>
+              <BaseButton
+                variant="secondary"
+                size="sm"
+                @click="showYybLoginModal = true"
+              >
+                <div class="i-carbon-login mr-2" />
+                <span class="hidden sm:inline">一键登录</span>
+                <span class="sm:hidden">登录</span>
+              </BaseButton>
+              <BaseButton
                 v-if="userStore.isAdmin"
                 variant="secondary"
                 size="sm"
@@ -1089,6 +1112,17 @@ async function handleTestOffline() {
             :show="showModal"
             :edit-data="editingAccount"
             @close="showModal = false"
+            @saved="handleSaved"
+          />
+
+          <YybConfigModal
+            :show="showYybConfigModal"
+            @close="showYybConfigModal = false"
+          />
+
+          <YybLoginModal
+            :show="showYybLoginModal"
+            @close="showYybLoginModal = false"
             @saved="handleSaved"
           />
 
