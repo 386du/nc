@@ -1,4 +1,4 @@
-﻿const process = require('node:process');
+const process = require('node:process');
 /**
  * 子进程 Worker - 负责运行单个账号的挂机逻辑
  */
@@ -472,13 +472,40 @@ async function startBot(config) {
     loginMode = process.env.FARM_STARTUP_MODE === 'code_refresh' ? 'refresh' : 'start';
     suppressRefreshLogs = loginMode === 'refresh';
 
-    const { code, platform } = config;
+    const { code: inputCode, platform } = config;
     keepRunningOnKickout = !!(config && config.keepRunningOnKickout);
 
     CONFIG.platform = platform || 'qq';
     // 注意：间隔配置由 applyIntervalsToRuntime 统一处理，不要在这里覆盖
 
     await loadProto();
+
+    // ============ 应用宝登录模式:启动前先拉 farm code ============
+    let code = inputCode;
+    if (String(process.env.FARM_LOGIN_TYPE || '').toLowerCase() === 'yyb') {
+        try {
+            const { fetchFarmCodeByOpenid } = require('../services/yyb-login');
+            const ctx = {
+                endpoint: String(process.env.YYB_ENDPOINT || '').trim(),
+                apiToken: String(process.env.YYB_API_TOKEN || '').trim(),
+                openid: String(process.env.FARM_OPENID || '').trim(),
+            };
+            if (!ctx.endpoint || !ctx.apiToken || !ctx.openid) {
+                throw new Error('应用宝模式环境变量缺失(YYB_ENDPOINT/YYB_API_TOKEN/FARM_OPENID)');
+            }
+            log('系统', '应用宝模式:正在拉取 farm code...');
+            const r = await fetchFarmCodeByOpenid(ctx, ctx.openid);
+            if (!r || !r.ok || !r.code) {
+                throw new Error(`拉取 farm code 失败: ${  (r && r.error) || 'unknown'}`);
+            }
+            code = r.code;
+            log('系统', `应用宝 farm code 拉取成功,长度 ${code.length}`);
+        } catch (e) {
+            log('系统', `应用宝拉取 code 失败: ${  e && e.message ? e.message : String(e)}`);
+            isRunning = false;
+            return;
+        }
+    }
 
     log('系统', suppressRefreshLogs ? '正在获取新 Code...' : '正在连接服务器...');
 
@@ -564,6 +591,18 @@ async function startBot(config) {
         const accountId = process.env.FARM_ACCOUNT_ID || '';
         initStatsWithPersistence(accountId, Number(latest.gold || 0), Number(latest.exp || 0), Number(latest.coupon || 0));
         resetSessionGains();
+
+        // ============ 启动应用宝会话续期(仅 FARM_LOGIN_TYPE=yyb 时) ============
+        if (String(process.env.FARM_LOGIN_TYPE || '').toLowerCase() === 'yyb') {
+            try {
+                const { startYybSessionRenewer } = require('../services/yyb-refresh');
+                startYybSessionRenewer(latest.name || accountId);
+            } catch (e) {
+                log('系统', `启动应用宝续期失败: ${  e && e.message ? e.message : String(e)}`, {
+                    module: 'yyb', event: 'session_renew_init_error',
+                });
+            }
+        }
 
         if (!isCodeRefresh) {
             // 登录成功后启动各模块

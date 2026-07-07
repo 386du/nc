@@ -10,6 +10,7 @@ const { createDataProvider } = require('./data-provider')
 const { createReloginReminderService } = require('./relogin-reminder')
 const { createRuntimeState } = require('./runtime-state')
 const { createWorkerManager } = require('./worker-manager')
+const { createYybReloginService } = require('../services/yyb-relogin')
 
 const OPERATION_KEYS = ['harvest', 'water', 'weed', 'bug', 'fertilize', 'plant', 'steal', 'helpWater', 'helpWeed', 'helpBug', 'taskClaim', 'sell', 'upgrade']
 
@@ -76,6 +77,7 @@ function createRuntimeEngine(options = {}) {
     addOrUpdateAccount: store.addOrUpdateAccount,
     deleteAccount: store.deleteAccount,
     getAccounts: store.getAccounts,
+    runtimeEvents,
     onStatusSync: (accountId, status, accountName) => {
       runtimeEvents.emit('status', { accountId, status, accountName })
       if (onStatusSync) onStatusSync(accountId, status, accountName)
@@ -88,6 +90,13 @@ function createRuntimeEngine(options = {}) {
   workerControls.startWorker = startWorker
   workerControls.restartWorker = restartWorker
   workerControls.refreshWorkerCode = refreshWorkerCode
+
+  // 应用宝主进程自动重连服务(监听 kickout/ws_error → 拉新 code → refreshWorkerCode)
+  const yybReloginService = createYybReloginService({
+    workers,
+    refreshWorkerCode,
+    runtimeEvents,
+  })
 
   const dataProvider = createDataProvider({
     workers,
@@ -155,6 +164,9 @@ function createRuntimeEngine(options = {}) {
     if (shouldStartAdminServer && startAdminServer) {
       startAdminServer(dataProvider)
     }
+
+    // 启动应用宝主进程重连监听
+    yybReloginService.start();
 
     if (shouldAutoStartAccounts) {
       startAllAccounts()

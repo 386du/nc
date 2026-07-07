@@ -1,4 +1,4 @@
-﻿const process = require('node:process');
+const process = require('node:process');
 /**
  * 运行时存储 - 自动化开关、种子偏好、账号管理
  */
@@ -190,6 +190,8 @@ const DEFAULT_ACCOUNT_CONFIG = {
     friendGuardDogBlacklist: [],
     // 护主犬帮忙白名单（只帮这些 GID，优先级高于黑名单）
     friendGuardDogWhitelist: [],
+    // 已确认携带护主犬的好友 GID 列表（worker 检测到后自动登记）
+    friendGuardDogGids: [],
     // 好友作物成熟后延迟多少秒再偷取（0=不延迟）
     stealDelaySeconds: 1,
     // 自己农田种植时是否随机地块顺序
@@ -341,6 +343,7 @@ function cloneAccountConfig(base = DEFAULT_ACCOUNT_CONFIG) {
         friendBlacklist: rawBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0),
         friendGuardDogBlacklist: (Array.isArray(base.friendGuardDogBlacklist) ? base.friendGuardDogBlacklist : []).map(Number).filter(n => Number.isFinite(n) && n > 0),
         friendGuardDogWhitelist: (Array.isArray(base.friendGuardDogWhitelist) ? base.friendGuardDogWhitelist : []).map(Number).filter(n => Number.isFinite(n) && n > 0),
+        friendGuardDogGids: (Array.isArray(base.friendGuardDogGids) ? base.friendGuardDogGids : []).map(Number).filter(n => Number.isFinite(n) && n > 0),
         plantingStrategy: ALLOWED_PLANTING_STRATEGIES.includes(String(base.plantingStrategy || ''))
             ? String(base.plantingStrategy)
             : DEFAULT_ACCOUNT_CONFIG.plantingStrategy,
@@ -452,6 +455,9 @@ function normalizeAccountConfig(input, fallback = accountFallbackConfig) {
     }
     if (Array.isArray(src.friendGuardDogWhitelist)) {
         cfg.friendGuardDogWhitelist = src.friendGuardDogWhitelist.map(Number).filter(n => Number.isFinite(n) && n > 0);
+    }
+    if (Array.isArray(src.friendGuardDogGids)) {
+        cfg.friendGuardDogGids = src.friendGuardDogGids.map(Number).filter(n => Number.isFinite(n) && n > 0);
     }
     // 偷取延迟
     if (src.stealDelaySeconds !== undefined && src.stealDelaySeconds !== null) {
@@ -808,6 +814,17 @@ function applyConfigSnapshot(snapshot, options = {}) {
         next.friendBlacklist = cfg.friendBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0);
     }
 
+    // 护主犬帮忙黑/白名单 & 已检测到的护主犬好友 GID 列表
+    if (Array.isArray(cfg.friendGuardDogBlacklist)) {
+        next.friendGuardDogBlacklist = cfg.friendGuardDogBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0);
+    }
+    if (Array.isArray(cfg.friendGuardDogWhitelist)) {
+        next.friendGuardDogWhitelist = cfg.friendGuardDogWhitelist.map(Number).filter(n => Number.isFinite(n) && n > 0);
+    }
+    if (Array.isArray(cfg.friendGuardDogGids)) {
+        next.friendGuardDogGids = cfg.friendGuardDogGids.map(Number).filter(n => Number.isFinite(n) && n > 0);
+    }
+
     if (cfg.knownFriendGids !== undefined) {
         next.knownFriendGids = normalizeKnownFriendGids(cfg.knownFriendGids, next.knownFriendGids);
         // 同时写入缓存文件
@@ -1117,6 +1134,38 @@ function removeFriendGuardDogWhitelistGid(accountId, gid) {
     const next = current.filter(g => g !== gidNum);
     setFriendGuardDogWhitelist(accountId, next);
     return current.length !== next.length;
+}
+
+// ============ 已检测到的护主犬好友 GID 列表 ============
+function getFriendGuardDogGids(accountId) {
+    return [...(getAccountConfigSnapshot(accountId).friendGuardDogGids || [])];
+}
+
+function setFriendGuardDogGids(accountId, list) {
+    const current = getAccountConfigSnapshot(accountId);
+    const next = normalizeAccountConfig(current, accountFallbackConfig);
+    next.friendGuardDogGids = Array.isArray(list) ? list.map(Number).filter(n => Number.isFinite(n) && n > 0) : [];
+    setAccountConfigSnapshot(accountId, next);
+    return [...next.friendGuardDogGids];
+}
+
+function addFriendGuardDogGid(accountId, gid) {
+    const gidNum = Number(gid);
+    if (!gidNum || gidNum <= 0) return false;
+    const current = getFriendGuardDogGids(accountId);
+    if (current.includes(gidNum)) return false;
+    setFriendGuardDogGids(accountId, [...current, gidNum]);
+    return true;
+}
+
+function removeFriendGuardDogGid(accountId, gid) {
+    const gidNum = Number(gid);
+    if (!gidNum || gidNum <= 0) return false;
+    const current = getFriendGuardDogGids(accountId);
+    const next = current.filter(g => g !== gidNum);
+    if (current.length === next.length) return false;
+    setFriendGuardDogGids(accountId, next);
+    return true;
 }
 
 // ============ 偷取延迟 ============
@@ -1530,6 +1579,10 @@ module.exports = {
     setFriendGuardDogWhitelist,
     addFriendGuardDogWhitelistGid,
     removeFriendGuardDogWhitelistGid,
+    getFriendGuardDogGids,
+    setFriendGuardDogGids,
+    addFriendGuardDogGid,
+    removeFriendGuardDogGid,
     getStealDelaySeconds,
     getPlantOrderRandom,
     getPlantDelaySeconds,

@@ -1,4 +1,4 @@
-﻿const { createScheduler } = require('../services/scheduler');
+const { createScheduler } = require('../services/scheduler');
 
 function createWorkerManager(options) {
     const {
@@ -21,17 +21,46 @@ function createWorkerManager(options) {
         getAccounts,
         onStatusSync,
         onWorkerLog,
+        runtimeEvents = null,
     } = options;
     const managerScheduler = createScheduler('worker_manager');
     const useThreadRuntime = runtimeMode === 'thread' && !processRef.pkg && typeof WorkerThread === 'function';
 
+    // ============ 应用宝登录模式环境变量注入 ============
+    // 当账号 loginType='yyb' 且配置了 endpoint/openid/apiToken 时,
+    // 把这些信息注入 worker 进程,worker 内部会先拉取 farm code 再启动游戏连接,
+    // 并启动 yyb-refresh 定时续期。
+    function buildYybEnv(account) {
+        const env = {};
+        try {
+            if (!account || String(account.loginType || '').toLowerCase() !== 'yyb') return env;
+            const openid = String(account.openid || account.qq || '').trim();
+            if (!openid) return env;
+            const store = require('../models/store');
+            const username = String(account.username || '');
+            const cfg = (store.getYybConfig && store.getYybConfig(username)) || null;
+            if (!cfg || !cfg.enabled) return env;
+            const entry = (cfg.accounts || []).find(a => String(a.openid || '').trim() === openid);
+            if (!entry || !entry.apiToken || !cfg.endpoint) return env;
+            env.FARM_LOGIN_TYPE = 'yyb';
+            env.FARM_OPENID = openid;
+            env.YYB_API_TOKEN = String(entry.apiToken).trim();
+            env.YYB_ENDPOINT = String(cfg.endpoint).trim();
+        } catch {
+            // 静默:获取失败时不透传 env
+        }
+        return env;
+    }
+
     function createThreadWorker(account, options) {
+        const yybEnv = buildYybEnv(account);
         const worker = new WorkerThread(workerScriptPath, {
             workerData: {
                 accountId: String(account.id || ''),
                 channel: 'thread',
                 startupMode: (options && options.codeRefresh) ? 'code_refresh' : 'start',
             },
+            env: { ...processRef.env, ...yybEnv },
         });
         // 与 child_process 保持同形接口
         worker.send = (payload) => worker.postMessage(payload);
@@ -40,17 +69,18 @@ function createWorkerManager(options) {
     }
 
     function createForkWorker(account, options) {
+        const yybEnv = buildYybEnv(account);
         if (processRef.pkg) {
             // 打包后也走 fork + execPath，确保 IPC 通道可用
             return fork(mainEntryPath, [], {
                 execPath: processRef.execPath,
                 stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-                env: { ...processRef.env, FARM_WORKER: '1', FARM_ACCOUNT_ID: String(account.id || ''), FARM_STARTUP_MODE: (options && options.codeRefresh) ? 'code_refresh' : 'start' },
+                env: { ...processRef.env, FARM_WORKER: '1', FARM_ACCOUNT_ID: String(account.id || ''), FARM_STARTUP_MODE: (options && options.codeRefresh) ? 'code_refresh' : 'start', ...yybEnv },
             });
         }
         return fork(workerScriptPath, [], {
             stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-            env: { ...processRef.env, FARM_ACCOUNT_ID: String(account.id || ''), FARM_STARTUP_MODE: (options && options.codeRefresh) ? 'code_refresh' : 'start' },
+            env: { ...processRef.env, FARM_ACCOUNT_ID: String(account.id || ''), FARM_STARTUP_MODE: (options && options.codeRefresh) ? 'code_refresh' : 'start', ...yybEnv },
         });
     }
 
@@ -86,6 +116,8 @@ function createWorkerManager(options) {
             username: account.username || '', // 保存用户名用于下线提醒
             nick: account.nick || '',
             uin: account.uin || account.qq || '',
+            loginType: account.loginType || '', // 应用宝登录模式标记（主进程重连判定用）
+            openid: account.openid || '',
             keepRunningOnKickout: !!account.keepRunningOnKickout,
             stopping: false,
             disconnectedSince: 0,
@@ -320,6 +352,15 @@ function createWorkerManager(options) {
                     worker.name,
                 );
             }
+            // 应用宝重连服务需要这个事件
+            if (runtimeEvents && typeof runtimeEvents.emit === 'function') {
+                runtimeEvents.emit('ws_error', {
+                    accountId: String(accountId),
+                    accountName: worker.name,
+                    code,
+                    message,
+                });
+            }
         } else if (msg.type === 'account_kicked') {
             const reason = msg.reason || '未知';
             const idleKickout = String(reason).includes('长时间未操作') || String(reason).includes('断开链接');
@@ -330,11 +371,23 @@ function createWorkerManager(options) {
                 ? latestAccounts.accounts.find(a => String(a && a.id) === String(accountId))
                 : null;
             const keepRunningOnKickout = !!((latestAccount && latestAccount.keepRunningOnKickout) || worker.keepRunningOnKickout);
+
+            // 应用宝重连服务需要这个事件(放在 keepRunningOnKickout 判定之前,
+            // 让服务在主进程做后续处理时已经有事件可监听)
+            if (runtimeEvents && typeof runtimeEvents.emit === 'function') {
+                runtimeEvents.emit('kickout', {
+                    accountId: String(accountId),
+                    accountName: worker.name,
+                    reason,
+                    idle: idleKickout,
+                });
+            }
+
             if (keepRunningOnKickout) {
                 worker.keepRunningOnKickout = true;
                 worker.wsError = { code: 400, message: String(reason || 'kickout'), at: Date.now(), waitingCodeRefresh: true };
-                log('??', `?? ${worker.name} ${stopLabel}????????? Code ??`, { accountId: String(accountId), accountName: worker.name });
-                addAccountLog('kickout_wait_code', `?? ${worker.name} ${stopLabel}????????? Code ??`, accountId, worker.name, { reason });
+                log('系统', `账号 ${worker.name} ${stopLabel}，等待新 Code 后自动恢复`, { accountId: String(accountId), accountName: worker.name });
+                addAccountLog('kickout_wait_code', `账号 ${worker.name} ${stopLabel}，等待新 Code 后自动恢复`, accountId, worker.name, { reason });
                 return;
             }
             log('系统', `账号 ${worker.name} ${stopLabel}，已自动停止账号`, { accountId: String(accountId), accountName: worker.name });
@@ -368,6 +421,28 @@ function createWorkerManager(options) {
                     reason: msg.reason,
                 });
                 // 同步配置到 worker 进程
+                const worker_process = workers[accountId];
+                if (worker_process && worker_process.process) {
+                    worker_process.process.send({ type: 'config_sync', config: buildConfigSnapshotForAccount(accountId) });
+                }
+            }
+        } else if (msg.type === 'friend_guard_dog_add') {
+            const gid = Number(msg.gid) || 0;
+            if (gid > 0) {
+                const store = require('../models/store');
+                if (store.addFriendGuardDogGid) {
+                    const added = store.addFriendGuardDogGid(accountId, gid);
+                    if (added) {
+                        log('好友', `已自动登记护主犬好友: ${msg.friendName || `GID:${gid}`}`, {
+                            accountId: String(accountId),
+                            accountName: worker.name,
+                            friendGid: gid,
+                            friendName: msg.friendName,
+                            dogIds: msg.dogIds,
+                        });
+                    }
+                }
+                // 同步配置到 worker 进程（让 worker 进程也能拿到最新的护主犬好友清单）
                 const worker_process = workers[accountId];
                 if (worker_process && worker_process.process) {
                     worker_process.process.send({ type: 'config_sync', config: buildConfigSnapshotForAccount(accountId) });

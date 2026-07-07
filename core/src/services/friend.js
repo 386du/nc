@@ -17,6 +17,8 @@ const {
     applyConfigSnapshot,
     getFriendGuardDogBlacklist,
     getFriendGuardDogWhitelist,
+    getFriendGuardDogGids,
+    addFriendGuardDogGid,
 } = require('../models/store');
 const { sendMsgAsync, getUserState, networkEvents } = require('../utils/network');
 const { types } = require('../utils/proto');
@@ -56,6 +58,17 @@ const MIN_QQ_VISITOR_GID_SYNC_RETRY_MS = 30 * 1000;
 const MAX_QQ_VISITOR_GID_SYNC_RETRY_MS = 2 * 60 * 1000;
 const INVALID_KNOWN_FRIEND_GID_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
+// ============ 护主犬相关常量 ============
+// 来自 ItemInfo.json / 游戏内道具搜索"护主犬"。
+// 当前主项 90021 是"洛克王国联动·护主犬"宠物（50% 触发看护技能）。
+// 如官方新增同系列护主犬，追加到此数组即可。
+const GUARD_DOG_IDS = new Set([90021]);
+// "未携带护主犬" 负缓存：24h 内不再对同一 gid 走 enterReply
+const NO_GUARD_DOG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const noGuardDogCache = new Map(); // key = `${accountId}:${gid}` -> expiresAtMs
+// debug log 一次性标志
+let __guardDogFieldDebugLogged = false;
+
 let canGetHelpExp = true;
 let helpAutoDisabledByLimit = false;
 let lastVisitorGidSyncAt = 0;
@@ -84,6 +97,128 @@ function getLocalDateKey() {
 
 function getAccountIdForBadState(accountId = process.env.FARM_ACCOUNT_ID || '') {
     return String(accountId || 'default').trim() || 'default';
+}
+
+// ============ 护主犬负缓存 ============
+function noGuardDogCacheKey(accountId, gid) {
+    return `${String(accountId || 'default')}:${Number(gid) || 0}`;
+}
+
+function isNoGuardDogCacheFresh(accountId, gid) {
+    if (!gid) return false;
+    const k = noGuardDogCacheKey(accountId, gid);
+    const exp = noGuardDogCache.get(k);
+    if (!exp) return false;
+    if (exp <= Date.now()) {
+        noGuardDogCache.delete(k);
+        return false;
+    }
+    return true;
+}
+
+function markNoGuardDog(accountId, gid) {
+    if (!gid) return;
+    noGuardDogCache.set(noGuardDogCacheKey(accountId, gid), Date.now() + NO_GUARD_DOG_CACHE_TTL_MS);
+}
+
+function clearNoGuardDogCache() {
+    noGuardDogCache.clear();
+}
+
+// ============ 护主犬过滤(帮忙前判定) ============
+/**
+ * 仅在开启"只帮护主犬好友"时,按 enterReply.brief_dog_info 判断是否护主。
+ * 返回 true 表示当前好友未携带护主犬,帮忙操作应被跳过。
+ * 若检测到携带护主犬,会自动登记到该账号的"护主犬好友"清单。
+ *
+ * 黑/白名单优先级:
+ *   1. 黑名单命中 → 直接跳过（不管有没有护主犬）
+ *   2. 白名单非空 + 当前 gid 在白名单 → 直接放行（不走护主犬检测）
+ *   3. 白名单非空 + 当前 gid 不在白名单 → 跳过
+ *   4. 白名单为空 → 走原护主犬检测
+ */
+function isFriendLackingGuardDog(enterReply, friendName, gid, accountId) {
+    if (!isAutomationOn('friend_help_only_guard_dog', accountId)) return false;
+
+    const gidNum = toNum(gid);
+
+    // 1. 黑名单优先级最高
+    if (gidNum > 0) {
+        try {
+            const blackList = getFriendGuardDogBlacklist(accountId) || [];
+            if (blackList.includes(gidNum)) {
+                return true;
+            }
+        } catch { /* ignore */ }
+    }
+
+    // 2-3. 白名单模式：非空时只允许白名单内的 gid
+    let whitelist = [];
+    try {
+        whitelist = getFriendGuardDogWhitelist(accountId) || [];
+    } catch { /* ignore */ }
+    if (whitelist.length > 0) {
+        if (gidNum > 0 && whitelist.includes(gidNum)) {
+            return false; // 白名单命中,直接放行
+        }
+        return true;
+    }
+
+    // 4. 白名单为空,走原护主犬检测
+    const brief = enterReply && enterReply.brief_dog_info;
+    if (!brief) {
+        // 首次遇到无字段时,把 enterReply 的可序列化片段打出来,便于排查真实字段名
+        try {
+            if (!__guardDogFieldDebugLogged) {
+                __guardDogFieldDebugLogged = true;
+                const keys = enterReply ? Object.keys(enterReply) : [];
+                log('好友', `未在 enterReply 中找到 brief_dog_info；当前字段: ${keys.join(',') || '(空)'}`, {
+                    module: 'friend',
+                    event: '护主犬过滤',
+                    result: 'no_field_debug',
+                });
+            }
+        } catch { /* ignore */ }
+        // 字段缺失视为无护主犬,写入负缓存以减少后续 enterReply
+        if (gidNum > 0) markNoGuardDog(accountId, gidNum);
+        return true;
+    }
+
+    // 服务端可能返回单个 dog_id,也可能是 dogs 列表;兼容两种结构
+    const dogIds = [];
+    if (Number.isFinite(Number(brief.dog_id))) dogIds.push(toNum(brief.dog_id));
+    if (Array.isArray(brief.dogs)) {
+        for (const d of brief.dogs) {
+            if (d && Number.isFinite(Number(d.id))) dogIds.push(toNum(d.id));
+        }
+    }
+    if (dogIds.length === 0) {
+        // 字段存在但为空 → 确认无护主犬,写入负缓存
+        if (gidNum > 0) markNoGuardDog(accountId, gidNum);
+        return true;
+    }
+    const hasGuardDog = dogIds.some(id => GUARD_DOG_IDS.has(id));
+    if (hasGuardDog) {
+        log('好友', `${friendName}: 携带护主犬,执行帮忙`, {
+            module: 'friend',
+            event: '护主犬过滤',
+            result: 'has_guard_dog',
+            friendName,
+            dogIds,
+        });
+        // 自动登记到"护主犬好友"清单(去重)
+        try {
+            if (gidNum > 0) {
+                addFriendGuardDogGid(accountId, gidNum);
+                // 同步到主进程(主进程才有最新 globalConfig 内存视图,负责落盘)
+                try { postToMaster({ type: 'friend_guard_dog_add', gid: gidNum, friendName, dogIds }); } catch { /* ignore */ }
+            }
+        } catch { /* ignore */ }
+        return false;
+    }
+    // 命中字段但不含护主犬 → 写入负缓存
+    if (gidNum > 0) markNoGuardDog(accountId, gidNum);
+    return true;
 }
 
 function readBadOperationState() {
@@ -1571,6 +1706,17 @@ async function visitFriendForHelp(friend, totalActions, myGid, accountId, ignore
             module: 'friend', event: '进入农场', result: 'error', friendName: name, friendGid: gid
         });
         return { acted: false, entered: false };
+    }
+
+    // ============ 护主犬过滤(只帮携带护主犬的好友) ============
+    // 当"只帮护主犬"开启时,先做"无护主犬"负缓存命中判定;命中则跳过 enterReply 之后的帮忙操作。
+    if (isAutomationOn('friend_help_only_guard_dog', accountId) && isNoGuardDogCacheFresh(accountId, gid)) {
+        await leaveFriendFarm(gid);
+        return { acted: false, entered: true, skipped: 'no_guard_dog_cache' };
+    }
+    if (isFriendLackingGuardDog(enterReply, name, gid, accountId)) {
+        await leaveFriendFarm(gid);
+        return { acted: false, entered: true, skipped: 'no_guard_dog' };
     }
 
     const lands = enterReply.lands || [];
