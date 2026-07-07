@@ -222,7 +222,7 @@ onMounted(() => {
                                 <div class="account-name">{{ acc.name || '(未命名)' }}</div>
                                 <div class="account-openid">{{ acc.openid }}</div>
                                 <div v-if="lastCodes[acc.openid]" class="last-code">
-                                    最近 code: <code>{{ lastCodes[acc.openid].slice(0, 8) }}***</code>
+                                    最近 code: <code>{{ (lastCodes[acc.openid] ?? '').slice(0, 8) }}***</code>
                                 </div>
                             </div>
                             <div class="account-actions">

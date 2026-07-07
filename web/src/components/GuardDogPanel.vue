@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import api from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import { useAccountStore } from '@/stores/account'
@@ -20,14 +19,7 @@ const newGid = ref('')
 const newGidName = ref('')
 const saving = ref(false)
 
-const friendMap = computed(() => {
-    const m = new Map<number, { name: string; avatarUrl: string }>()
-    for (const f of (friends.value || [])) {
-        const gid = Number(f.gid)
-        if (gid > 0) m.set(gid, { name: f.name || f.remark || '', avatarUrl: f.avatarUrl || f.avatar_url || '' })
-    }
-    return m
-})
+void friends
 
 const blacklistSet = computed(() => new Set(blacklist.value.map(b => Number(b.gid))))
 const guardDogBlackSet = computed(() => new Set(guardDogBlacklist.value.map(b => Number(b.gid))))
@@ -205,7 +197,7 @@ async function clearAll() {
                     <BaseButton
                         v-if="activeTab === 'blacklist'"
                         size="sm"
-                        variant="warning"
+                        variant="outline"
                         @click="toggleBlack(f.gid)"
                     >
                         加黑
