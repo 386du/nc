@@ -1333,6 +1333,8 @@ function addOrUpdateAccount(acc) {
             name: acc.name || `账号${id}`,
             code: acc.code || '',
             platform: acc.platform || 'qq',
+            loginType: acc.loginType || '', // 应用宝/其他登录方式(worker 启动时用)
+            openid: acc.openid || '', // 应用宝 OpenID(应用宝模式下必填)
             uin: acc.uin ? String(acc.uin) : '',
             qq: acc.qq ? String(acc.qq) : (acc.uin ? String(acc.uin) : ''),
             avatar: acc.avatar || acc.avatarUrl || '',

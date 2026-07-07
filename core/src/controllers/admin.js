@@ -1183,9 +1183,10 @@ app.use('/api', (req, res, next) => {
             // 检查是否已有同名 openid 账号（按 name 关联）
             const accounts = getAccountList();
             const existing = (accounts.accounts || []).find(a => String(a.name) === String(tail));
+            // 关键:写入 loginType='yyb' 和 openid,让 worker 启动时识别为应用宝账号并注入 env
             const payload = existing
-                ? { id: existing.id, name: tail, code, platform: 'qq' }
-                : { name: tail, code, platform: 'qq' };
+                ? { id: existing.id, name: tail, code, platform: 'qq', loginType: 'yyb', openid }
+                : { name: tail, code, platform: 'qq', loginType: 'yyb', openid };
             // 关联当前用户
             payload.username = username;
             const data = addOrUpdateAccount(payload);
