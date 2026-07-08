@@ -1,6 +1,30 @@
+export {};
 const { createScheduler } = require('../services/scheduler');
 
-function createWorkerManager(options) {
+interface CreateWorkerManagerOptions {
+    fork: any;
+    WorkerThread: any;
+    runtimeMode?: string;
+    processRef: any;
+    mainEntryPath: string;
+    workerScriptPath: string;
+    workers: Record<string, any>;
+    globalLogs: any[];
+    log: (tag: string, msg: string, meta?: any) => void;
+    addAccountLog: (action: string, msg: string, accountId?: string, accountName?: string, extra?: any) => void;
+    normalizeStatusForPanel: (data: any, accountId: string, name: string) => any;
+    buildConfigSnapshotForAccount: (accountId: string) => any;
+    getOfflineAutoDeleteMs: (username: string) => number;
+    triggerOfflineReminder: (params: any) => void;
+    addOrUpdateAccount: (acc: any) => any;
+    deleteAccount: (accountId: string) => boolean;
+    getAccounts: () => { accounts: any[] };
+    runtimeEvents?: any;
+    onStatusSync?: (accountId: string, status: any, name?: string) => void;
+    onWorkerLog?: (entry: any, accountId: string, name?: string) => void;
+}
+
+function createWorkerManager(options: CreateWorkerManagerOptions): any {
     const {
         fork,
         WorkerThread,
@@ -19,10 +43,11 @@ function createWorkerManager(options) {
         addOrUpdateAccount,
         deleteAccount,
         getAccounts,
+        runtimeEvents = null,
         onStatusSync,
         onWorkerLog,
-        runtimeEvents = null,
     } = options;
+
     const managerScheduler = createScheduler('worker_manager');
     const useThreadRuntime = runtimeMode === 'thread' && !processRef.pkg && typeof WorkerThread === 'function';
 
@@ -30,8 +55,8 @@ function createWorkerManager(options) {
     // 当账号 loginType='yyb' 且配置了 endpoint/openid/apiToken 时,
     // 把这些信息注入 worker 进程,worker 内部会先拉取 farm code 再启动游戏连接,
     // 并启动 yyb-refresh 定时续期。
-    function buildYybEnv(account) {
-        const env = {};
+    function buildYybEnv(account: any): Record<string, string> {
+        const env: Record<string, string> = {};
         try {
             if (!account || String(account.loginType || '').toLowerCase() !== 'yyb') return env;
             const openid = String(account.openid || account.qq || '').trim();
@@ -40,7 +65,7 @@ function createWorkerManager(options) {
             const username = String(account.username || '');
             const cfg = (store.getYybConfig && store.getYybConfig(username)) || null;
             if (!cfg || !cfg.enabled) return env;
-            const entry = (cfg.accounts || []).find(a => String(a.openid || '').trim() === openid);
+            const entry = (cfg.accounts || []).find((a: any) => String(a.openid || '').trim() === openid);
             if (!entry || !entry.apiToken || !cfg.endpoint) return env;
             env.FARM_LOGIN_TYPE = 'yyb';
             env.FARM_OPENID = openid;
@@ -52,9 +77,9 @@ function createWorkerManager(options) {
         return env;
     }
 
-    function createThreadWorker(account, options) {
+    function createThreadWorker(account: any, options: any = {}): any {
         const yybEnv = buildYybEnv(account);
-        const workerOptions = {
+        const workerOptions: any = {
             workerData: {
                 accountId: String(account.id || ''),
                 channel: 'thread',
@@ -68,12 +93,12 @@ function createWorkerManager(options) {
         }
         // 与 child_process 保持同形接口
         const worker = new WorkerThread(workerScriptPath, workerOptions);
-        worker.send = (payload) => worker.postMessage(payload);
+        worker.send = (payload: any) => worker.postMessage(payload);
         worker.kill = () => worker.terminate();
         return worker;
     }
 
-    function createForkWorker(account, options) {
+    function createForkWorker(account: any, options: any = {}): any {
         const yybEnv = buildYybEnv(account);
         if (processRef.pkg) {
             // 打包后也走 fork + execPath，确保 IPC 通道可用
@@ -83,7 +108,7 @@ function createWorkerManager(options) {
                 env: { ...processRef.env, FARM_WORKER: '1', FARM_ACCOUNT_ID: String(account.id || ''), FARM_STARTUP_MODE: (options && options.codeRefresh) ? 'code_refresh' : 'start', ...yybEnv },
             });
         }
-        const forkOptions = {
+        const forkOptions: any = {
             stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
             env: { ...processRef.env, FARM_ACCOUNT_ID: String(account.id || ''), FARM_STARTUP_MODE: (options && options.codeRefresh) ? 'code_refresh' : 'start', ...yybEnv },
         };
@@ -94,21 +119,21 @@ function createWorkerManager(options) {
         return fork(workerScriptPath, [], forkOptions);
     }
 
-    function createWorkerProcess(account, options) {
+    function createWorkerProcess(account: any, options: any = {}): any {
         if (useThreadRuntime) return createThreadWorker(account, options);
         return createForkWorker(account, options);
     }
 
-    function startWorker(account, options = {}) {
+    function startWorker(account: any, options: any = {}): boolean {
         if (!account || !account.id) return false;
         if (workers[account.id]) return false; // 已运行
 
         if (!(options && options.codeRefresh)) log('系统', `正在启动账号: ${account.name}`, { accountId: String(account.id), accountName: account.name });
 
-        let child = null;
+        let child: any = null;
         try {
             child = createWorkerProcess(account, options);
-        } catch (err) {
+        } catch (err: any) {
             const reason = err && err.message ? err.message : String(err || 'unknown error');
             log('错误', `账号 ${account.name} 启动失败: ${reason}`, { accountId: String(account.id), accountName: account.name });
             addAccountLog('start_failed', `账号 ${account.name} 启动失败`, account.id, account.name, { reason });
@@ -147,15 +172,15 @@ function createWorkerManager(options) {
         child.send({ type: 'config_sync', config: buildConfigSnapshotForAccount(account.id) });
 
         // 监听消息
-        child.on('message', (msg) => {
+        child.on('message', (msg: any) => {
             handleWorkerMessage(account.id, msg);
         });
 
-        child.on('error', (err) => {
+        child.on('error', (err: any) => {
             log('系统', `账号 ${account.name} 子进程启动失败: ${err && err.message ? err.message : err}`, { accountId: String(account.id), accountName: account.name });
         });
 
-        child.on('exit', (code, signal) => {
+        child.on('exit', (code: any, signal: any) => {
             const current = workers[account.id];
             const displayName = (current && current.name) || account.name;
             if (!(options && options.codeRefresh)) log('系统', `账号 ${displayName} 进程退出 (code=${code}, signal=${signal || 'none'})`, {
@@ -184,7 +209,7 @@ function createWorkerManager(options) {
         return true;
     }
 
-    function stopWorker(accountId) {
+    function stopWorker(accountId: string): void {
         const worker = workers[accountId];
         if (!worker) return;
 
@@ -201,25 +226,25 @@ function createWorkerManager(options) {
         });
     }
 
-    function restartWorker(account, options = {}) {
+    function restartWorker(account: any, options: any = {}): void {
         if (!account) return;
         const accountId = account.id;
         const worker = workers[accountId];
-        if (!worker) return startWorker(account);
+        if (!worker) { startWorker(account); return; }
         const proc = worker.process;
         const preservedStartedAt = options && options.preserveStartedAt ? worker.startedAt : 0;
         let started = false;
-        const startOnce = () => {
+        const startOnce = (): void => {
             if (started) return;
             started = true;
             managerScheduler.clear(`restart_fallback_${accountId}`);
             const current = workers[accountId];
-            if (!current) return startWorker(account, { startedAt: preservedStartedAt, codeRefresh: !!(options && options.codeRefresh) });
+            if (!current) { startWorker(account, { startedAt: preservedStartedAt, codeRefresh: !!(options && options.codeRefresh) }); return; }
             if (current.process !== proc) return;
             delete workers[accountId];
             startWorker(account, { startedAt: preservedStartedAt, codeRefresh: !!(options && options.codeRefresh) });
         };
-        const killIfStale = () => {
+        const killIfStale = (): boolean => {
             const current = workers[accountId];
             if (!current || current.process !== proc) return false;
             try {
@@ -229,7 +254,8 @@ function createWorkerManager(options) {
             return true;
         };
         if (typeof proc.exitCode === 'number' || proc.signalCode) {
-            return startOnce();
+            startOnce();
+            return;
         }
         proc.once('exit', startOnce);
         stopWorker(accountId);
@@ -240,7 +266,7 @@ function createWorkerManager(options) {
         });
     }
 
-    function handleWorkerMessage(accountId, msg) {
+    function handleWorkerMessage(accountId: string, msg: any): void {
         const worker = workers[accountId];
         if (!worker) return;
 
@@ -326,7 +352,7 @@ function createWorkerManager(options) {
                     stopWorker(accountId);
                     try {
                         deleteAccount(accountId);
-                    } catch (e) {
+                    } catch (e: any) {
                         log('错误', `删除离线账号失败: ${e.message}`);
                     }
                 }
@@ -378,7 +404,7 @@ function createWorkerManager(options) {
 
             const latestAccounts = typeof getAccounts === 'function' ? getAccounts() : { accounts: [] };
             const latestAccount = latestAccounts && Array.isArray(latestAccounts.accounts)
-                ? latestAccounts.accounts.find(a => String(a && a.id) === String(accountId))
+                ? latestAccounts.accounts.find((a: any) => String(a && a.id) === String(accountId))
                 : null;
             const keepRunningOnKickout = !!((latestAccount && latestAccount.keepRunningOnKickout) || worker.keepRunningOnKickout);
 
@@ -461,7 +487,7 @@ function createWorkerManager(options) {
         }
     }
 
-    function callWorkerApi(accountId, method, ...args) {
+    function callWorkerApi(accountId: string, method: string, ...args: any[]): Promise<any> {
         const worker = workers[accountId];
         if (!worker) return Promise.reject(new Error('账号未运行'));
 
@@ -482,7 +508,7 @@ function createWorkerManager(options) {
         });
     }
 
-    async function refreshWorkerCode(accountId, code) {
+    async function refreshWorkerCode(accountId: string, code: string): Promise<{ ok: boolean; reason?: string }> {
         const worker = workers[accountId];
         if (!worker) return { ok: false, reason: 'account_not_running' };
         await callWorkerApi(accountId, 'refreshCode', code);

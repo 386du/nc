@@ -1,3 +1,4 @@
+export {};
 const process = require('node:process');
 /**
  * 子进程 Worker - 负责运行单个账号的挂机逻辑
@@ -36,7 +37,7 @@ if (parentPort && workerData && workerData.accountId && !process.env.FARM_ACCOUN
     process.env.FARM_ACCOUNT_ID = String(workerData.accountId);
 }
 
-function sendToMaster(payload) {
+function sendToMaster(payload: any): void {
     if (process.send) {
         process.send(payload);
         return;
@@ -46,7 +47,7 @@ function sendToMaster(payload) {
     }
 }
 
-function onMasterMessage(handler) {
+function onMasterMessage(handler: (msg: any) => void): void {
     if (process.send) {
         process.on('message', handler);
     }
@@ -55,7 +56,7 @@ function onMasterMessage(handler) {
     }
 }
 
-function exitWorker(code = 0) {
+function exitWorker(code: number = 0): void {
     if (parentPort) {
         try {
             parentPort.close();
@@ -65,11 +66,11 @@ function exitWorker(code = 0) {
     process.exit(code);
 }
 
-function pad2(n) {
+function pad2(n: number): string {
     return String(n).padStart(2, '0');
 }
 
-function formatLocalDateTime24(date = new Date()) {
+function formatLocalDateTime24(date: Date = new Date()): string {
     const d = date instanceof Date ? date : new Date();
     const y = d.getFullYear();
     const m = pad2(d.getMonth() + 1);
@@ -81,9 +82,9 @@ function formatLocalDateTime24(date = new Date()) {
 }
 
 let loginMode = 'start';
-let suppressRefreshLogs = process.env.FARM_STARTUP_MODE === 'code_refresh';
+let suppressRefreshLogs: boolean = process.env.FARM_STARTUP_MODE === 'code_refresh';
 
-function shouldSuppressRefreshLog(tag, msg, isWarn, meta) {
+function shouldSuppressRefreshLog(tag: string, msg: string, isWarn: boolean, meta: any): boolean {
     if (!suppressRefreshLogs) return false;
     if (isWarn) return false;
     if (meta && meta.result === 'error') return false;
@@ -94,7 +95,7 @@ function shouldSuppressRefreshLog(tag, msg, isWarn, meta) {
 }
 
 // 捕获日志发送给主进程
-setLogHook((tag, msg, isWarn, meta) => {
+setLogHook((tag: string, msg: string, isWarn: boolean, meta: any) => {
     if (shouldSuppressRefreshLog(tag, msg, isWarn, meta || {})) return;
     sendToMaster({
         type: 'log',
@@ -109,7 +110,7 @@ setLogHook((tag, msg, isWarn, meta) => {
 });
 
 // 捕获金币经验变化
-setRecordGoldExpHook((gold, exp) => {
+setRecordGoldExpHook((gold: number, exp: number) => {
     // 更新内部统计
     const { recordGoldExp } = require('../services/stats');
     recordGoldExp(gold, exp);
@@ -126,21 +127,21 @@ let farmTaskRunning = false;
 let nextFarmRunAt = 0;
 let lastStatusHash = '';
 let lastStatusSentAt = 0;
-let onSellGain = null;
-let onFarmHarvested = null;
+let onSellGain: any = null;
+let onFarmHarvested: any = null;
 let harvestSellRunning = false;
-let onWsError = null;
+let onWsError: any = null;
 let wsErrorHandledAt = 0;
 let lastDailyRunDate = '';
 let keepRunningOnKickout = false;
 const workerScheduler = createScheduler('worker');
 
-function isDailyRoutineEnabled(_auto) {
+function isDailyRoutineEnabled(_auto: any): boolean {
     // 每日任务默认启用，不再检查开关
     return true;
 }
 
-function getLocalDateKey() {
+function getLocalDateKey(): string {
     const now = new Date();
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, '0');
@@ -148,7 +149,7 @@ function getLocalDateKey() {
     return `${y}-${m}-${d}`;
 }
 
-async function runDailyRoutines(force = false) {
+async function runDailyRoutines(force: boolean = false): Promise<void> {
     if (!loginReady) return;
     try {
         // 以下功能默认启用，不再检查开关
@@ -157,16 +158,16 @@ async function runDailyRoutines(force = false) {
         await performDailyMonthCardGift(force);
         await buyFreeGifts(force);
         await performDailyVipGift(force);
-    } catch (e) {
+    } catch (e: any) {
         log('系统', `每日任务调度失败: ${e.message}`, { module: 'system', event: '每日任务', result: 'error' });
     }
 }
 
-function stopDailyRoutineTimer() {
+function stopDailyRoutineTimer(): void {
     workerScheduler.clear('daily_routine_interval');
 }
 
-function startDailyRoutineTimer() {
+function startDailyRoutineTimer(): void {
     stopDailyRoutineTimer();
     lastDailyRunDate = getLocalDateKey();
     // 新账号登录后按当前设置强制执行一次领取
@@ -180,7 +181,7 @@ function startDailyRoutineTimer() {
     });
 }
 
-function normalizeIntervalRangeSec(minSec, maxSec, fallbackSec) {
+function normalizeIntervalRangeSec(minSec: any, maxSec: any, fallbackSec: any): { min: number; max: number } {
     const fallback = Math.max(1, Number.parseInt(fallbackSec, 10) || 1);
     let min = Math.max(1, Number.parseInt(minSec, 10) || fallback);
     let max = Math.max(1, Number.parseInt(maxSec, 10) || fallback);
@@ -188,7 +189,7 @@ function normalizeIntervalRangeSec(minSec, maxSec, fallbackSec) {
     return { min, max };
 }
 
-function applyIntervalsToRuntime(intervals) {
+function applyIntervalsToRuntime(intervals: any): void {
     const data = (intervals && typeof intervals === 'object') ? intervals : {};
 
     const farmLegacy = Math.max(1, Number.parseInt(data.farm, 10) || 2);
@@ -207,7 +208,7 @@ function applyIntervalsToRuntime(intervals) {
     CONFIG.stealCheckIntervalMax = stealRange.max * 1000;
 }
 
-function randomIntervalMs(minMs, maxMs) {
+function randomIntervalMs(minMs: any, maxMs: any): number {
     const minSec = Math.max(1, Math.floor(Math.max(1000, Number(minMs) || 1000) / 1000));
     const maxSec = Math.max(minSec, Math.floor(Math.max(1000, Number(maxMs) || minSec * 1000) / 1000));
     if (maxSec === minSec) return minSec * 1000;
@@ -215,7 +216,7 @@ function randomIntervalMs(minMs, maxMs) {
     return sec * 1000;
 }
 
-function resetUnifiedSchedule() {
+function resetUnifiedSchedule(): void {
     const farmMs = randomIntervalMs(
         CONFIG.farmCheckIntervalMin || CONFIG.farmCheckInterval || 2000,
         CONFIG.farmCheckIntervalMax || CONFIG.farmCheckInterval || 2000
@@ -234,7 +235,7 @@ function resetUnifiedSchedule() {
     nextStealRunAt = now + stealMs;
 }
 
-async function runFarmTick(auto) {
+async function runFarmTick(auto: any): Promise<void> {
     if (farmTaskRunning) return;
     farmTaskRunning = true;
     const farmMs = randomIntervalMs(
@@ -258,7 +259,7 @@ async function runFarmTick(auto) {
 let helpTaskRunning = false;
 let nextHelpRunAt = 0;
 
-async function runHelpTick(auto) {
+async function runHelpTick(auto: any): Promise<void> {
     if (helpTaskRunning) {
         return;
     }
@@ -284,7 +285,7 @@ async function runHelpTick(auto) {
     //log('系统', `帮助巡查开始执行，下次间隔 ${helpMs}ms`, { module: 'system', event: '帮助巡查', result: 'start', intervalMs: helpMs });
     try {
         await checkFriends({ onlyHelp: true });
-    } catch (e) {
+    } catch (e: any) {
         log('系统', `帮助巡查执行失败: ${e.message}`, { module: 'system', event: '帮助巡查', result: 'error' });
     } finally {
         nextHelpRunAt = Date.now() + helpMs;
@@ -297,7 +298,7 @@ async function runHelpTick(auto) {
 let stealTaskRunning = false;
 let nextStealRunAt = 0;
 
-async function runStealTick(auto) {
+async function runStealTick(auto: any): Promise<void> {
     if (stealTaskRunning) {
         //log('系统', '偷菜巡查跳过：正在执行中', { module: 'system', event: '偷菜巡查', result: 'skipped', reason: 'running' });
         return;
@@ -313,7 +314,7 @@ async function runStealTick(auto) {
     );
     try {
         await checkFriends({ onlySteal: true });
-    } catch (e) {
+    } catch (e: any) {
         log('系统', `偷菜巡查执行失败: ${e.message}`, { module: 'system', event: '偷菜巡查', result: 'error' });
     } finally {
         nextStealRunAt = Date.now() + stealMs;
@@ -321,7 +322,7 @@ async function runStealTick(auto) {
     }
 }
 
-async function runUnifiedTick() {
+async function runUnifiedTick(): Promise<void> {
     if (!unifiedSchedulerRunning || !loginReady) return;
     const now = Date.now();
     const dueFarm = now >= nextFarmRunAt;
@@ -336,7 +337,7 @@ async function runUnifiedTick() {
     if (dueSteal) await runStealTick(auto);
 }
 
-function scheduleUnifiedNextTick() {
+function scheduleUnifiedNextTick(): void {
     if (!unifiedSchedulerRunning) return;
     workerScheduler.clear('unified_next_tick');
     if (!loginReady) return;
@@ -358,14 +359,14 @@ function scheduleUnifiedNextTick() {
     });
 }
 
-function startUnifiedScheduler() {
+function startUnifiedScheduler(): void {
     if (unifiedSchedulerRunning) return;
     unifiedSchedulerRunning = true;
     resetUnifiedSchedule();
     scheduleUnifiedNextTick();
 }
 
-function stopUnifiedScheduler() {
+function stopUnifiedScheduler(): void {
     unifiedSchedulerRunning = false;
     farmTaskRunning = false;
     helpTaskRunning = false;
@@ -373,7 +374,7 @@ function stopUnifiedScheduler() {
     workerScheduler.clear('unified_next_tick');
 }
 
-function pauseForCodeRefresh() {
+function pauseForCodeRefresh(): void {
     loginReady = false;
     loginMode = 'refresh';
     suppressRefreshLogs = true;
@@ -386,7 +387,7 @@ function pauseForCodeRefresh() {
     workerScheduler.clear('fertilizer_immediate_after_save');
 }
 
-function applyRuntimeConfig(snapshot, syncNow = false) {
+function applyRuntimeConfig(snapshot: any, syncNow: boolean = false): void {
     const prevAuto = getAutomation();
     const accountId = process.env.FARM_ACCOUNT_ID || '';
     if (snapshot && Object.prototype.hasOwnProperty.call(snapshot, 'keepRunningOnKickout')) {
@@ -434,7 +435,7 @@ function applyRuntimeConfig(snapshot, syncNow = false) {
                     try {
                         // await runFertilizerByConfig([]);
                         await runFertilizerByConfig([], { skipNormal: true });
-                    } catch (e) {
+                    } catch (e: any) {
                         log('施肥', `保存配置后立即施肥失败: ${e.message}`, {
                             module: 'farm',
                             event: '施肥',
@@ -450,7 +451,7 @@ function applyRuntimeConfig(snapshot, syncNow = false) {
 }
 
 // 接收主进程指令
-onMasterMessage(async (msg) => {
+onMasterMessage(async (msg: any) => {
     try {
         if (msg.type === 'start') {
             await startBot(msg.config);
@@ -461,12 +462,12 @@ onMasterMessage(async (msg) => {
         } else if (msg.type === 'config_sync') {
             applyRuntimeConfig(msg.config || {}, true);
         }
-    } catch (e) {
+    } catch (e: any) {
         sendToMaster({ type: 'error', error: e.message });
     }
 });
 
-async function startBot(config) {
+async function startBot(config: any): Promise<void> {
     if (isRunning) return;
     isRunning = true;
     loginMode = process.env.FARM_STARTUP_MODE === 'code_refresh' ? 'refresh' : 'start';
@@ -481,7 +482,7 @@ async function startBot(config) {
     await loadProto();
 
     // ============ 应用宝登录模式:启动前先拉 farm code ============
-    let code = inputCode;
+    let code: string = inputCode;
     if (String(process.env.FARM_LOGIN_TYPE || '').toLowerCase() === 'yyb') {
         try {
             const { fetchFarmCode } = require('../services/yyb-login');
@@ -500,7 +501,7 @@ async function startBot(config) {
             }
             code = r.code;
             log('系统', `应用宝 farm code 拉取成功,长度 ${code.length}`);
-        } catch (e) {
+        } catch (e: any) {
             log('系统', `应用宝拉取 code 失败: ${e && e.message ? e.message : String(e)}`);
             isRunning = false;
             return;
@@ -519,7 +520,7 @@ async function startBot(config) {
         networkEvents.off('ws_error', onWsError);
         onWsError = null;
     }
-    onWsError = (payload) => {
+    onWsError = (payload: any) => {
         if ((Number(payload?.code) || 0) !== 400) return;
         const now = Date.now();
         if (now - wsErrorHandledAt < 4000) return;
@@ -546,7 +547,7 @@ async function startBot(config) {
         if (onSellGain) {
             networkEvents.off('sell', onSellGain);
         }
-        onSellGain = (deltaGold) => {
+        onSellGain = (deltaGold: number) => {
             const delta = Number(deltaGold || 0);
             if (!Number.isFinite(delta) || delta <= 0) return;
             recordOperation('sell', 1);
@@ -562,7 +563,7 @@ async function startBot(config) {
             harvestSellRunning = true;
             try {
                 await sellAllFruits();
-            } catch (e) {
+            } catch (e: any) {
                 log('仓库', `收获后自动出售失败: ${e.message}`, { module: 'warehouse', event: '收获后出售', result: 'error' });
             } finally {
                 harvestSellRunning = false;
@@ -597,7 +598,7 @@ async function startBot(config) {
             try {
                 const { startYybSessionRenewer } = require('../services/yyb-refresh');
                 startYybSessionRenewer(latest.name || accountId);
-            } catch (e) {
+            } catch (e: any) {
                 log('系统', `启动应用宝续期失败: ${  e && e.message ? e.message : String(e)}`, {
                     module: 'yyb', event: 'session_renew_init_error',
                 });
@@ -615,7 +616,7 @@ async function startBot(config) {
             workerScheduler.setTimeoutTask('bad_startup_once', 10000, async () => {
                 try {
                     await runBadOnceOnStartup();
-                } catch (e) {
+                } catch (e: any) {
                     log('好友', `启动时放虫放草执行失败: ${e.message}`, { module: 'friend', event: '启动放虫放草失败', error: e.message });
                 }
             });
@@ -648,7 +649,7 @@ async function startBot(config) {
     workerScheduler.setIntervalTask('status_sync', 3000, syncStatus, { preventOverlap: true });
 }
 
-async function stopBot() {
+async function stopBot(): Promise<void> {
     if (!isRunning) return exitWorker(0);
     saveStats();
     isRunning = false;
@@ -678,7 +679,7 @@ async function stopBot() {
     exitWorker(0);
 }
 
-function waitForLoginReady(timeoutMs) {
+function waitForLoginReady(timeoutMs: number): Promise<boolean> {
     const startedAt = Date.now();
     return new Promise((resolve) => {
         function check() {
@@ -690,7 +691,7 @@ function waitForLoginReady(timeoutMs) {
     });
 }
 
-async function refreshCode(newCode) {
+async function refreshCode(newCode: string): Promise<{ ok: boolean }> {
     const code = String(newCode || '').trim();
     if (!code) {
         throw new Error('missing_code');
@@ -713,7 +714,7 @@ async function refreshCode(newCode) {
     }
 }
 
-function onKickout(payload) {
+function onKickout(payload: any): void {
     const reason = payload && payload.reason ? payload.reason : '未知';
     if (keepRunningOnKickout) {
         pauseForCodeRefresh();
@@ -729,10 +730,10 @@ function onKickout(payload) {
 }
 
 // 处理来自 Admin 面板的直接调用请求 (如: 购买种子、开关设置等)
-async function handleApiCall(msg) {
+async function handleApiCall(msg: any): Promise<void> {
     const { id, method, args } = msg;
-    let result = null;
-    let error = null;
+    let result: any = null;
+    let error: any = null;
 
     try {
         switch (method) {
@@ -774,7 +775,7 @@ async function handleApiCall(msg) {
             case 'sellItems': {
                 const { sellItems: _sell } = require('../services/warehouse');
                 const sellList = Array.isArray(args[0]) ? args[0] : [];
-                result = await _sell(sellList.map(it => ({ id: it.id, count: it.count, uid: it.uid || 0 })));
+                result = await _sell(sellList.map((it: any) => ({ id: it.id, count: it.count, uid: it.uid || 0 })));
                 break;
             }
             case 'setAutomation': {
@@ -857,14 +858,14 @@ async function handleApiCall(msg) {
             default:
                 error = 'Unknown method';
         }
-    } catch (e) {
+    } catch (e: any) {
         error = e.message;
     }
 
     sendToMaster({ type: 'api_response', id, result, error });
 }
 
-async function getDailyGiftOverview() {
+async function getDailyGiftOverview(): Promise<any> {
     const auto = getAutomation() || {};
     const task = getTaskDailyStateLikeApp
         ? await getTaskDailyStateLikeApp()
@@ -907,7 +908,7 @@ async function getDailyGiftOverview() {
                 label: '会员礼包',
                 enabled: true,
                 doneToday: !!vip.doneToday,
-                lastAt: Number(vip.lastClaimAt || vip.lastCheckAt || 0),
+                lastAt: Number(vip.lastAt || vip.lastCheckAt || 0),
                 hasGift: Object.prototype.hasOwnProperty.call(vip, 'hasGift') ? !!vip.hasGift : undefined,
                 canClaim: Object.prototype.hasOwnProperty.call(vip, 'canClaim') ? !!vip.canClaim : undefined,
                 result: vip.result || '',
@@ -926,14 +927,14 @@ async function getDailyGiftOverview() {
     };
 }
 
-function syncStatus() {
+function syncStatus(): void {
     if (!process.send && !parentPort) return;
 
     const userState = getUserState();
     const ws = getWs();
     const connected = !!(loginReady && ws && ws.readyState === 1);
 
-    let expProgress = null;
+    let expProgress: any = null;
     const level = (userState.level ?? statusData.level ?? 0);
     const exp = (userState.exp ?? statusData.exp ?? 0);
 
@@ -966,4 +967,3 @@ function syncStatus() {
         sendToMaster({ type: 'status_sync', data: fullStats });
     }
 }
-
