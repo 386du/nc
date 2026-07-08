@@ -14,7 +14,7 @@ const { getAutomation, getPreferredSeed, getConfigSnapshot, applyConfigSnapshot,
 const { checkAndClaimEmails } = require('../services/email');
 const { getEmailDailyState } = require('../services/email');
 const { checkFarm, startFarmCheckLoop, stopFarmCheckLoop, refreshFarmCheckLoop, getLandsDetail, getAvailableSeeds, runFarmOperation, runFertilizerByConfig } = require('../services/farm');
-const { checkFriends, startFriendCheckLoop, stopFriendCheckLoop, refreshFriendCheckLoop, runBadOnceOnStartup, isHelpExpLimitReached, getFriendsList, getFriendLandsDetail, doFriendOperation } = require('../services/friend');
+const { checkFriends, startFriendCheckLoop, stopFriendCheckLoop, refreshFriendCheckLoop, runBadOnceOnStartup, isHelpExpLimitReached, getFriendsList, getFriendLandsDetail, doFriendOperation, scanAllFriendsForGuardDog } = require('../services/friend');
 const { getInteractRecords } = require('../services/interact');
 const { processInviteCodes } = require('../services/invite');
 const { autoBuyOrganicFertilizer, autoBuyFertilizer, checkAndBuyFertilizerBoth, buyFreeGifts, getFreeGiftDailyState } = require('../services/mall');
@@ -747,6 +747,59 @@ async function handleApiCall(msg: any): Promise<void> {
                 require('../services/friend').clearFriendsListCache();
                 result = { ok: true };
                 break;
+            case 'scanGuardDogFriends': {
+                const options = (args[0] && typeof args[0] === 'object') ? args[0] : {};
+                const accountId = String(process.env.FARM_ACCOUNT_ID || '');
+                const send = (payload: any) => {
+                    try {
+                        if (typeof process !== 'undefined' && typeof process.send === 'function') {
+                            process.send({ type: 'guard_dog_scan_progress', ...payload });
+                        }
+                    } catch { /* ignore */ }
+                };
+                const onProgress = (p: any) => {
+                    send({
+                        phase: 'scanning',
+                        progress: {
+                            scanned: p.index + 1,
+                            total: p.total,
+                            guardDogCount: p.status === 'guard_dog' ? 1 : 0,
+                            newGids: [],
+                            current: { gid: p.gid, name: p.name, status: p.status, message: p.message },
+                        },
+                    });
+                };
+                let scanResult;
+                try {
+                    scanResult = await scanAllFriendsForGuardDog(accountId, {
+                        minIntervalMs: options.minIntervalMs,
+                        maxIntervalMs: options.maxIntervalMs,
+                        enterTimeoutMs: options.enterTimeoutMs,
+                        concurrency: options.concurrency,
+                        onProgress,
+                    });
+                    send({
+                        finished: true,
+                        phase: 'completed',
+                        progress: {
+                            scanned: scanResult.scanned,
+                            total: scanResult.scanned,
+                            guardDogCount: scanResult.guardDogCount,
+                            newGids: scanResult.newGids,
+                        },
+                    });
+                    result = { ok: true, result: scanResult };
+                } catch (e: any) {
+                    send({
+                        finished: true,
+                        phase: 'error',
+                        progress: { scanned: 0, total: 0, guardDogCount: 0, newGids: [] },
+                        error: e && e.message ? e.message : String(e || 'scan_failed'),
+                    });
+                    result = { ok: false, reason: e && e.message ? e.message : String(e || 'scan_failed') };
+                }
+                break;
+            }
             case 'getInteractRecords':
                 result = await getInteractRecords();
                 break;

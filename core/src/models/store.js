@@ -98,6 +98,32 @@ function normalizeFriendsListCacheTtlSec(input, fallback = DEFAULT_FRIENDS_LIST_
     return Math.max(10, Math.min(INTERVAL_MAX_SEC, base));
 }
 
+function normalizeNoGuardDogAt(input, fallback = {}) {
+    const out = {};
+    if (fallback && typeof fallback === 'object') {
+        for (const [k, v] of Object.entries(fallback)) {
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) out[Number(k)] = n;
+        }
+    }
+    if (input && typeof input === 'object') {
+        for (const [k, v] of Object.entries(input)) {
+            const gid = Number(k);
+            const ts = Number(v);
+            if (Number.isFinite(gid) && gid > 0 && Number.isFinite(ts) && ts > 0) {
+                out[gid] = ts;
+            }
+        }
+    }
+    return out;
+}
+
+function normalizeNoGuardDogCacheTtlSec(input, fallback = 1800) {
+    const value = Number.parseInt(input, 10);
+    const base = Number.isFinite(value) ? value : fallback;
+    return Math.max(60, Math.min(7 * 24 * 3600, base));
+}
+
 function normalizeBagSeedPriority(input) {
     if (!Array.isArray(input)) return [];
     const normalized = [];
@@ -193,6 +219,10 @@ const DEFAULT_ACCOUNT_CONFIG = {
     friendGuardDogWhitelist: [],
     // 已确认携带护主犬的好友 GID 列表（worker 检测到后自动登记）
     friendGuardDogGids: [],
+    // 护主犬"负缓存"：gid -> timestamp(ms)，表示该好友最近被检测到未携带护主犬
+    friendNoGuardDogAt: {},
+    // friendNoGuardDogAt 缓存的 TTL（秒），默认 1800（30 分钟）
+    friendNoGuardDogCacheTtlSec: 1800,
     // 好友作物成熟后延迟多少秒再偷取（0=不延迟）
     stealDelaySeconds: 1,
     // 自己农田种植时是否随机地块顺序
@@ -345,6 +375,8 @@ function cloneAccountConfig(base = DEFAULT_ACCOUNT_CONFIG) {
         friendGuardDogBlacklist: (Array.isArray(base.friendGuardDogBlacklist) ? base.friendGuardDogBlacklist : []).map(Number).filter(n => Number.isFinite(n) && n > 0),
         friendGuardDogWhitelist: (Array.isArray(base.friendGuardDogWhitelist) ? base.friendGuardDogWhitelist : []).map(Number).filter(n => Number.isFinite(n) && n > 0),
         friendGuardDogGids: (Array.isArray(base.friendGuardDogGids) ? base.friendGuardDogGids : []).map(Number).filter(n => Number.isFinite(n) && n > 0),
+        friendNoGuardDogAt: normalizeNoGuardDogAt(base.friendNoGuardDogAt, {}),
+        friendNoGuardDogCacheTtlSec: normalizeNoGuardDogCacheTtlSec(base.friendNoGuardDogCacheTtlSec, 1800),
         plantingStrategy: ALLOWED_PLANTING_STRATEGIES.includes(String(base.plantingStrategy || ''))
             ? String(base.plantingStrategy)
             : DEFAULT_ACCOUNT_CONFIG.plantingStrategy,
@@ -459,6 +491,12 @@ function normalizeAccountConfig(input, fallback = accountFallbackConfig) {
     }
     if (Array.isArray(src.friendGuardDogGids)) {
         cfg.friendGuardDogGids = src.friendGuardDogGids.map(Number).filter(n => Number.isFinite(n) && n > 0);
+    }
+    if (src.friendNoGuardDogAt !== undefined && src.friendNoGuardDogAt !== null && typeof src.friendNoGuardDogAt === 'object') {
+        cfg.friendNoGuardDogAt = normalizeNoGuardDogAt(src.friendNoGuardDogAt, cfg.friendNoGuardDogAt);
+    }
+    if (src.friendNoGuardDogCacheTtlSec !== undefined && src.friendNoGuardDogCacheTtlSec !== null) {
+        cfg.friendNoGuardDogCacheTtlSec = normalizeNoGuardDogCacheTtlSec(src.friendNoGuardDogCacheTtlSec, cfg.friendNoGuardDogCacheTtlSec);
     }
     // 偷取延迟
     if (src.stealDelaySeconds !== undefined && src.stealDelaySeconds !== null) {
@@ -825,6 +863,12 @@ function applyConfigSnapshot(snapshot, options = {}) {
     if (Array.isArray(cfg.friendGuardDogGids)) {
         next.friendGuardDogGids = cfg.friendGuardDogGids.map(Number).filter(n => Number.isFinite(n) && n > 0);
     }
+    if (cfg.friendNoGuardDogAt !== undefined && cfg.friendNoGuardDogAt !== null && typeof cfg.friendNoGuardDogAt === 'object') {
+        next.friendNoGuardDogAt = normalizeNoGuardDogAt(cfg.friendNoGuardDogAt, next.friendNoGuardDogAt);
+    }
+    if (cfg.friendNoGuardDogCacheTtlSec !== undefined && cfg.friendNoGuardDogCacheTtlSec !== null) {
+        next.friendNoGuardDogCacheTtlSec = normalizeNoGuardDogCacheTtlSec(cfg.friendNoGuardDogCacheTtlSec, next.friendNoGuardDogCacheTtlSec);
+    }
 
     if (cfg.knownFriendGids !== undefined) {
         next.knownFriendGids = normalizeKnownFriendGids(cfg.knownFriendGids, next.knownFriendGids);
@@ -1094,6 +1138,8 @@ function addFriendGuardDogBlacklistGid(accountId, gid) {
     if (current.includes(gidNum)) return false;
     const next = [...current, gidNum];
     setFriendGuardDogBlacklist(accountId, next);
+    // 加入"不帮"黑名单 → 失效负缓存,避免下个循环又跳过
+    try { unmarkNoGuardDog(accountId, gidNum); } catch { /* ignore */ }
     return true;
 }
 
@@ -1156,6 +1202,8 @@ function addFriendGuardDogGid(accountId, gid) {
     const current = getFriendGuardDogGids(accountId);
     if (current.includes(gidNum)) return false;
     setFriendGuardDogGids(accountId, [...current, gidNum]);
+    // 该 gid 确认为携带护主犬 → 失效负缓存
+    try { unmarkNoGuardDog(accountId, gidNum); } catch { /* ignore */ }
     return true;
 }
 
@@ -1167,6 +1215,98 @@ function removeFriendGuardDogGid(accountId, gid) {
     if (current.length === next.length) return false;
     setFriendGuardDogGids(accountId, next);
     return true;
+}
+
+// ============ "无护主犬"负缓存 ============
+function getNoGuardDogAtMap(accountId) {
+    const raw = getAccountConfigSnapshot(accountId).friendNoGuardDogAt;
+    return normalizeNoGuardDogAt(raw, {});
+}
+
+function getNoGuardDogCacheTtlSec(accountId) {
+    return normalizeNoGuardDogCacheTtlSec(getAccountConfigSnapshot(accountId).friendNoGuardDogCacheTtlSec, 1800);
+}
+
+function setNoGuardDogCacheTtlSec(accountId, sec) {
+    const current = getAccountConfigSnapshot(accountId);
+    const next = normalizeAccountConfig(current, accountFallbackConfig);
+    next.friendNoGuardDogCacheTtlSec = normalizeNoGuardDogCacheTtlSec(sec, current.friendNoGuardDogCacheTtlSec);
+    setAccountConfigSnapshot(accountId, next);
+    return next.friendNoGuardDogCacheTtlSec;
+}
+
+function markNoGuardDog(accountId, gid, now = Date.now()) {
+    const gidNum = Number(gid);
+    if (!gidNum || gidNum <= 0) return false;
+    const current = getAccountConfigSnapshot(accountId);
+    const next = normalizeAccountConfig(current, accountFallbackConfig);
+    const map = normalizeNoGuardDogAt(next.friendNoGuardDogAt, {});
+    // 清理 1 天以前的过期项,防止数据无限增长
+    const expireBefore = now - 24 * 60 * 60 * 1000;
+    for (const [k, ts] of Object.entries(map)) {
+        if (Number(ts) < expireBefore) delete map[Number(k)];
+    }
+    if (map[gidNum] === now) return false;
+    map[gidNum] = now;
+    next.friendNoGuardDogAt = map;
+    setAccountConfigSnapshot(accountId, next);
+    return true;
+}
+
+function unmarkNoGuardDog(accountId, gid) {
+    const gidNum = Number(gid);
+    if (!gidNum || gidNum <= 0) return false;
+    const current = getAccountConfigSnapshot(accountId);
+    const next = normalizeAccountConfig(current, accountFallbackConfig);
+    const map = normalizeNoGuardDogAt(next.friendNoGuardDogAt, {});
+    if (!(gidNum in map)) return false;
+    delete map[gidNum];
+    next.friendNoGuardDogAt = map;
+    setAccountConfigSnapshot(accountId, next);
+    return true;
+}
+
+function clearNoGuardDogCache(accountId, gid) {
+    const current = getAccountConfigSnapshot(accountId);
+    const next = normalizeAccountConfig(current, accountFallbackConfig);
+    if (gid !== undefined && gid !== null) {
+        const gidNum = Number(gid);
+        if (!gidNum || gidNum <= 0) return 0;
+        const map = normalizeNoGuardDogAt(next.friendNoGuardDogAt, {});
+        if (!(gidNum in map)) return 0;
+        delete map[gidNum];
+        next.friendNoGuardDogAt = map;
+        setAccountConfigSnapshot(accountId, next);
+        return 1;
+    }
+    const old = normalizeNoGuardDogAt(next.friendNoGuardDogAt, {});
+    const count = Object.keys(old).length;
+    next.friendNoGuardDogAt = {};
+    setAccountConfigSnapshot(accountId, next);
+    return count;
+}
+
+function isNoGuardDogCacheFresh(accountId, gid, now = Date.now()) {
+    const gidNum = Number(gid);
+    if (!gidNum || gidNum <= 0) return false;
+    const cfg = getAccountConfigSnapshot(accountId);
+    const map = normalizeNoGuardDogAt(cfg.friendNoGuardDogAt, {});
+    const ts = map[gidNum];
+    if (!ts) return false;
+    const ttl = normalizeNoGuardDogCacheTtlSec(cfg.friendNoGuardDogCacheTtlSec, 1800);
+    return (now - ts) < ttl * 1000;
+}
+
+function getNoGuardDogCacheStats(accountId) {
+    const cfg = getAccountConfigSnapshot(accountId);
+    const map = normalizeNoGuardDogAt(cfg.friendNoGuardDogAt, {});
+    const values = Object.values(map).map(v => Number(v)).filter(n => Number.isFinite(n));
+    return {
+        count: values.length,
+        ttlSec: normalizeNoGuardDogCacheTtlSec(cfg.friendNoGuardDogCacheTtlSec, 1800),
+        oldestAt: values.length > 0 ? Math.min(...values) : null,
+        newestAt: values.length > 0 ? Math.max(...values) : null,
+    };
 }
 
 // ============ 偷取延迟 ============
@@ -1545,6 +1685,14 @@ module.exports = {
     setFriendGuardDogGids,
     addFriendGuardDogGid,
     removeFriendGuardDogGid,
+    getNoGuardDogAtMap,
+    getNoGuardDogCacheTtlSec,
+    setNoGuardDogCacheTtlSec,
+    markNoGuardDog,
+    unmarkNoGuardDog,
+    clearNoGuardDogCache,
+    isNoGuardDogCacheFresh,
+    getNoGuardDogCacheStats,
     getStealDelaySeconds,
     getPlantOrderRandom,
     getPlantDelaySeconds,

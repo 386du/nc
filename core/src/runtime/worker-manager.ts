@@ -202,6 +202,26 @@ function createWorkerManager(options: CreateWorkerManagerOptions): any {
                 current.requests.clear();
             }
 
+            // 如果扫描进行中 worker 退出了,标记为已中断
+            try {
+                const scanMod = require('./scan-status');
+                if (scanMod && typeof scanMod.isScanInProgress === 'function' && scanMod.isScanInProgress(String(account.id), 'guardDogScan')) {
+                    if (typeof scanMod.interruptInProgressScan === 'function') {
+                        scanMod.interruptInProgressScan(String(account.id), 'guardDogScan', { reason: 'worker_exit' });
+                    } else {
+                        const cur = scanMod.getScanStatus ? scanMod.getScanStatus(String(account.id), 'guardDogScan') : null;
+                        if (scanMod.setScanStatus) {
+                            scanMod.setScanStatus(String(account.id), 'guardDogScan', {
+                                ...(cur || {}),
+                                phase: 'interrupted',
+                                error: 'worker_exit',
+                                finishedAt: Date.now(),
+                            });
+                        }
+                    }
+                }
+            } catch { /* ignore */ }
+
             if (current && current.process === child) {
                 delete workers[account.id];
             }
@@ -483,6 +503,29 @@ function createWorkerManager(options: CreateWorkerManagerOptions): any {
                 if (worker_process && worker_process.process) {
                     worker_process.process.send({ type: 'config_sync', config: buildConfigSnapshotForAccount(accountId) });
                 }
+            }
+        } else if (msg.type === 'guard_dog_scan_progress') {
+            // worker 主动汇报扫描进度
+            try {
+                const { setScanStatus, isScanInProgress, getScanStatus } = require('./scan-status');
+                const phase = String(msg.phase || 'scanning');
+                if (msg.finished) {
+                    const cur = getScanStatus(accountId, 'guardDogScan') || {};
+                    setScanStatus(accountId, 'guardDogScan', {
+                        ...cur,
+                        phase: 'completed',
+                        progress: msg.progress || cur.progress || { scanned: 0, total: 0, guardDogCount: 0, newGids: [] },
+                        finishedAt: Date.now(),
+                    });
+                } else {
+                    setScanStatus(accountId, 'guardDogScan', {
+                        phase,
+                        progress: msg.progress || { scanned: 0, total: 0, guardDogCount: 0, newGids: [] },
+                        lastUpdate: Date.now(),
+                    });
+                }
+            } catch (e: any) {
+                log('错误', `护主犬扫描进度更新失败: ${e && e.message ? e.message : String(e || 'unknown')}`, { accountId: String(accountId) });
             }
         }
     }

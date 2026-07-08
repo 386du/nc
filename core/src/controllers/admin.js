@@ -698,6 +698,17 @@ app.use('/api', (req, res, next) => {
                 lastData = await provider.setAutomation(id, k, v);
             }
             res.json({ ok: true, data: lastData || {} });
+
+            // 开启"只帮护主犬好友" → 异步预热扫描(后台跑,不影响 API 响应)
+            const becameOn = req.body && req.body.friend_help_only_guard_dog === true;
+            if (becameOn && provider && typeof provider.scanGuardDogFriends === 'function') {
+                setImmediate(() => {
+                    try {
+                        provider.scanGuardDogFriends(id, { concurrency: 1, minIntervalMs: 400, maxIntervalMs: 900 })
+                            .catch(() => { /* ignore */ });
+                    } catch { /* ignore */ }
+                });
+            }
         } catch (e) {
             res.status(500).json({ ok: false, error: e.message });
         }
@@ -1084,6 +1095,70 @@ app.use('/api', (req, res, next) => {
         }
         const data = await buildGuardDogListWithFriendInfoAsync(id, savedGids);
         res.json({ ok: true, data });
+    });
+
+    // 护主犬好友(GID 列表,worker 检测到的)
+    app.get('/api/friend-guard-dog-gids', async (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!checkAccountAccess(req, id)) return res.status(403).json({ ok: false, error: '无权访问此账号' });
+        const gids = store.getFriendGuardDogGids ? store.getFriendGuardDogGids(id) : [];
+        const data = await buildGuardDogListWithFriendInfoAsync(id, gids);
+        const cacheStats = store.getNoGuardDogCacheStats ? store.getNoGuardDogCacheStats(id) : null;
+        res.json({ ok: true, data, cacheStats });
+    });
+
+    // 护主犬扫描 - 启动
+    app.post('/api/friend-guard-dog-gids/scan', async (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!checkAccountAccess(req, id)) return res.status(403).json({ ok: false, error: '无权访问此账号' });
+        if (!provider || typeof provider.scanGuardDogFriends !== 'function') {
+            return res.status(500).json({ ok: false, error: '护主犬扫描功能未启用' });
+        }
+        const options = (req.body && typeof req.body === 'object') ? req.body : {};
+        try {
+            const r = await provider.scanGuardDogFriends(id, options);
+            if (r && r.ok === false) {
+                return res.status(400).json(r);
+            }
+            res.json(r);
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e && e.message ? e.message : String(e || 'scan_failed') });
+        }
+    });
+
+    // 护主犬扫描 - 状态
+    app.get('/api/friend-guard-dog-gids/scan-status', (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!checkAccountAccess(req, id)) return res.status(403).json({ ok: false, error: '无权访问此账号' });
+        if (!provider || typeof provider.getScanGuardDogStatus !== 'function') {
+            return res.json({ ok: true, accountId: id, inProgress: false, status: null });
+        }
+        const r = provider.getScanGuardDogStatus(id);
+        res.json({ ok: true, ...r });
+    });
+
+    // 护主犬扫描 - 清除状态
+    app.post('/api/friend-guard-dog-gids/clear', (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!checkAccountAccess(req, id)) return res.status(403).json({ ok: false, error: '无权访问此账号' });
+        if (provider && typeof provider.clearScanGuardDogStatus === 'function') {
+            provider.clearScanGuardDogStatus(id);
+        }
+        res.json({ ok: true });
+    });
+
+    // 护主犬扫描 - 强制失效负缓存(让后续扫描能重新覆盖)
+    app.post('/api/friend-guard-dog-gids/invalidate-cache', (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!checkAccountAccess(req, id)) return res.status(403).json({ ok: false, error: '无权访问此账号' });
+        if (!store.clearNoGuardDogCache) return res.status(500).json({ ok: false, error: 'cache helper missing' });
+        const cleared = store.clearNoGuardDogCache(id);
+        res.json({ ok: true, cleared });
     });
 
     // ============ 应用宝登录配置 ============

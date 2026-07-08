@@ -19,6 +19,10 @@ const {
     getFriendGuardDogWhitelist,
     getFriendGuardDogGids,
     addFriendGuardDogGid,
+    markNoGuardDog,
+    isNoGuardDogCacheFresh,
+    unmarkNoGuardDog,
+    clearNoGuardDogCache: clearNoGuardDogCacheFromStore,
 } = require('../models/store');
 const { sendMsgAsync, getUserState, networkEvents } = require('../utils/network');
 const { types } = require('../utils/proto');
@@ -63,9 +67,7 @@ const INVALID_KNOWN_FRIEND_GID_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // 当前主项 90021 是"洛克王国联动·护主犬"宠物（50% 触发看护技能）。
 // 如官方新增同系列护主犬，追加到此数组即可。
 const GUARD_DOG_IDS = new Set([90021]);
-// "未携带护主犬" 负缓存：24h 内不再对同一 gid 走 enterReply
-const NO_GUARD_DOG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const noGuardDogCache = new Map(); // key = `${accountId}:${gid}` -> expiresAtMs
+// "未携带护主犬" 负缓存：使用 store 持久化,默认 TTL 由 store 配置决定
 // debug log 一次性标志
 let __guardDogFieldDebugLogged = false;
 
@@ -99,31 +101,35 @@ function getAccountIdForBadState(accountId = process.env.FARM_ACCOUNT_ID || '') 
     return String(accountId || 'default').trim() || 'default';
 }
 
-// ============ 护主犬负缓存 ============
+// ============ 护主犬负缓存 (使用 store 持久化) ============
+// 委托给 store.friendNoGuardDogAt,便于跨重启保留
 function noGuardDogCacheKey(accountId, gid) {
     return `${String(accountId || 'default')}:${Number(gid) || 0}`;
 }
 
-function isNoGuardDogCacheFresh(accountId, gid) {
-    if (!gid) return false;
-    const k = noGuardDogCacheKey(accountId, gid);
-    const exp = noGuardDogCache.get(k);
-    if (!exp) return false;
-    if (exp <= Date.now()) {
-        noGuardDogCache.delete(k);
-        return false;
-    }
-    return true;
-}
-
-function markNoGuardDog(accountId, gid) {
-    if (!gid) return;
-    noGuardDogCache.set(noGuardDogCacheKey(accountId, gid), Date.now() + NO_GUARD_DOG_CACHE_TTL_MS);
-}
-
 function clearNoGuardDogCache() {
-    noGuardDogCache.clear();
+    try { clearNoGuardDogCacheFromStore('default'); } catch { /* ignore */ }
 }
+
+const noGuardDogCache = {
+    delete() { /* noop, store 直接管理 */ },
+    clear() { clearNoGuardDogCache(); },
+    get(k) {
+        try {
+            const [accountId, gid] = String(k).split(':');
+            if (isNoGuardDogCacheFresh(accountId, Number(gid))) {
+                return Date.now() + 30 * 60 * 1000;
+            }
+        } catch { /* ignore */ }
+        return undefined;
+    },
+    set(k, _v) {
+        try {
+            const [accountId, gid] = String(k).split(':');
+            markNoGuardDog(accountId, Number(gid));
+        } catch { /* ignore */ }
+    },
+};
 
 // ============ 护主犬过滤(帮忙前判定) ============
 /**
@@ -219,6 +225,164 @@ function isFriendLackingGuardDog(enterReply, friendName, gid, accountId) {
     // 命中字段但不含护主犬 → 写入负缓存
     if (gidNum > 0) markNoGuardDog(accountId, gidNum);
     return true;
+}
+
+/**
+ * 从 enterReply 提取出护主犬 ID 集合（仅做"是否携带"判定，不写登记）
+ */
+function extractGuardDogIds(enterReply) {
+    const brief = enterReply && enterReply.brief_dog_info;
+    if (!brief) return [];
+    const dogIds = [];
+    if (Number.isFinite(Number(brief.dog_id))) dogIds.push(toNum(brief.dog_id));
+    if (Array.isArray(brief.dogs)) {
+        for (const d of brief.dogs) {
+            if (d && Number.isFinite(Number(d.id))) dogIds.push(toNum(d.id));
+        }
+    }
+    return dogIds;
+}
+
+/**
+ * 单个好友是否携带护主犬（无状态，只读 enterReply）
+ */
+function friendHasGuardDog(enterReply) {
+    const ids = extractGuardDogIds(enterReply);
+    if (ids.length === 0) return false;
+    return ids.some(id => GUARD_DOG_IDS.has(id));
+}
+
+/**
+ * 扫描当前账号的全部好友，识别携带护主犬的好友并写入"护主犬好友"清单。
+ * 与 isFriendLackingGuardDog 行为一致（GUARD_DOG_IDS 白名单），只是全量走一遍。
+ * 返回结果不依赖主进程合并，调用方需要将 newGids 合并到主进程 store。
+ */
+async function scanAllFriendsForGuardDog(accountId, options = {}) {
+    const minIntervalMs = Math.max(0, options.minIntervalMs ?? 200);
+    const maxIntervalMs = Math.max(minIntervalMs, options.maxIntervalMs ?? 600);
+    const enterTimeoutMs = Math.max(500, options.enterTimeoutMs ?? 4000);
+    const concurrency = Math.max(1, Math.min(20, options.concurrency ?? 2));
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+    const shouldAbort = typeof options.shouldAbort === 'function' ? options.shouldAbort : null;
+
+    const startedAt = Date.now();
+    let scanned = 0;
+    let guardDogCount = 0;
+    let errorCount = 0;
+    let skippedCount = 0;
+    const newGids = [];
+
+    let reply;
+    try {
+        reply = await getFriendsList(false);
+    } catch (e) {
+        throw new Error(`获取好友列表失败: ${e && e.message ? e.message : String(e)}`);
+    }
+
+    const friends = (reply && (reply.game_friends || reply.gameFriends)) || [];
+    if (!Array.isArray(friends) || friends.length === 0) {
+        return { scanned: 0, guardDogCount: 0, newGids, errorCount: 0, skippedCount: 0, durationMs: Date.now() - startedAt };
+    }
+
+    // 已有清单，用于去重
+    const existing = (() => {
+        try {
+            const cur = (getFriendGuardDogGids && getFriendGuardDogGids(accountId)) || [];
+            return cur.map(n => toNum(n)).filter(n => n > 0);
+        } catch { return []; }
+    })();
+    const existingSet = new Set(existing);
+
+    const total = friends.length;
+    let cursor = 0;
+
+    const scanOne = async (i) => {
+        if (shouldAbort && shouldAbort()) {
+            skippedCount++;
+            return;
+        }
+        const f = friends[i] || {};
+        const gidNum = toNum(f.gid ?? f.guild_id ?? f.game_friend_gid);
+        const name = String(f.name || f.nick || `GID:${gidNum}`);
+        scanned++;
+
+        if (!Number.isFinite(gidNum) || gidNum <= 0) {
+            errorCount++;
+            onProgress && onProgress({ index: i, total, gid: 0, name, status: 'error', message: '无效 gid' });
+            return;
+        }
+
+        let enterReply;
+        try {
+            enterReply = await Promise.race([
+                enterFriendFarm(gidNum),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('enter timeout')), enterTimeoutMs)),
+            ]);
+        } catch (e) {
+            errorCount++;
+            onProgress && onProgress({ index: i, total, gid: gidNum, name, status: 'error', message: e && e.message ? e.message : String(e) });
+            return;
+        }
+
+        try {
+            await leaveFriendFarm(gidNum);
+        } catch { /* ignore */ }
+
+        if (friendHasGuardDog(enterReply)) {
+            guardDogCount++;
+            if (!existingSet.has(gidNum)) {
+                try {
+                    if (addFriendGuardDogGid(accountId, gidNum)) {
+                        newGids.push(gidNum);
+                        existingSet.add(gidNum);
+                    }
+                } catch { /* ignore */ }
+            }
+            onProgress && onProgress({ index: i, total, gid: gidNum, name, status: 'guard_dog' });
+        } else {
+            try { markNoGuardDog(accountId, gidNum); } catch { /* ignore */ }
+            onProgress && onProgress({ index: i, total, gid: gidNum, name, status: 'scanned' });
+        }
+    };
+
+    const workers = [];
+    const workerCount = Math.min(concurrency, total);
+    for (let w = 0; w < workerCount; w++) {
+        workers.push((async () => {
+            while (true) {
+                if (shouldAbort && shouldAbort()) return;
+                const i = cursor++;
+                if (i >= total) return;
+                await scanOne(i);
+                if (cursor < total) {
+                    const wait = minIntervalMs + Math.floor(Math.random() * (maxIntervalMs - minIntervalMs));
+                    await sleep(wait);
+                }
+            }
+        })());
+    }
+    await Promise.all(workers);
+
+    log('好友', `护主犬扫描完成: 共 ${scanned} 人，命中 ${guardDogCount} 人，新增 ${newGids.length} 人`, {
+        module: 'friend',
+        event: '护主犬扫描',
+        result: newGids.length > 0 ? 'new_found' : 'no_new',
+        scanned,
+        guardDogCount,
+        newGids,
+        errorCount,
+        durationMs: Date.now() - startedAt,
+        concurrency: workerCount,
+    });
+
+    return {
+        scanned,
+        guardDogCount,
+        newGids,
+        errorCount,
+        skippedCount,
+        durationMs: Date.now() - startedAt,
+    };
 }
 
 function readBadOperationState() {
@@ -2211,5 +2375,8 @@ module.exports = {
     getFriendLandsDetail,
     doFriendOperation,
     clearFriendsListCache,
+    scanAllFriendsForGuardDog,
+    friendHasGuardDog,
+    extractGuardDogIds,
 };
 

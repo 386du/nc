@@ -1,5 +1,6 @@
 const { findAccountByRef, normalizeAccountRef, resolveAccountId: resolveAccountIdByList } = require('../services/account-resolver');
 const { getSchedulerRegistrySnapshot } = require('../services/scheduler');
+const { setScanStatus, getScanStatus, clearScanStatus, isScanInProgress } = require('./scan-status');
 
 function createDataProvider(options) {
     const {
@@ -98,6 +99,72 @@ function createDataProvider(options) {
         getInteractRecords: (accountRef) => callWorkerApi(resolveAccountRefId(accountRef), 'getInteractRecords'),
         getFriendLands: (accountRef, gid) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriendLands', gid),
         doFriendOp: (accountRef, gid, opType) => callWorkerApi(resolveAccountRefId(accountRef), 'doFriendOp', gid, opType),
+
+        // ============ 护主犬扫描 ============
+        scanGuardDogFriends: (accountRef, options = {}) => {
+            const accountId = resolveAccountRefId(accountRef);
+            if (!accountId) return Promise.resolve({ ok: false, reason: 'invalid_account' });
+            if (!workers[accountId]) return Promise.resolve({ ok: false, reason: 'not_running' });
+            if (isScanInProgress(accountId, 'guardDogScan')) {
+                return Promise.resolve({ ok: false, reason: 'already_running' });
+            }
+            setScanStatus(accountId, 'guardDogScan', {
+                phase: 'starting',
+                progress: { scanned: 0, total: 0, guardDogCount: 0, newGids: [] },
+                startedAt: Date.now(),
+            });
+            return callWorkerApi(accountId, 'scanGuardDogFriends', options || {})
+                .then((res) => {
+                    if (res && res.ok) {
+                        const result = res.result || {};
+                        setScanStatus(accountId, 'guardDogScan', {
+                            phase: 'completed',
+                            progress: {
+                                scanned: result.scanned || 0,
+                                total: result.scanned || 0,
+                                guardDogCount: result.guardDogCount || 0,
+                                newGids: result.newGids || [],
+                            },
+                            startedAt: getScanStatus(accountId, 'guardDogScan').startedAt || Date.now(),
+                            finishedAt: Date.now(),
+                        });
+                    } else {
+                        const cur = getScanStatus(accountId, 'guardDogScan') || {};
+                        setScanStatus(accountId, 'guardDogScan', {
+                            ...cur,
+                            phase: res && res.reason ? `error:${res.reason}` : 'error',
+                            finishedAt: Date.now(),
+                        });
+                    }
+                    return res;
+                })
+                .catch((e) => {
+                    const cur = getScanStatus(accountId, 'guardDogScan') || {};
+                    setScanStatus(accountId, 'guardDogScan', {
+                        ...cur,
+                        phase: 'error',
+                        error: e && e.message ? e.message : String(e || 'scan_failed'),
+                        finishedAt: Date.now(),
+                    });
+                    throw e;
+                });
+        },
+
+        getScanGuardDogStatus: (accountRef) => {
+            const accountId = resolveAccountRefId(accountRef);
+            if (!accountId) return { accountId: '', inProgress: false, status: null };
+            return {
+                accountId,
+                inProgress: isScanInProgress(accountId, 'guardDogScan'),
+                status: getScanStatus(accountId, 'guardDogScan'),
+            };
+        },
+
+        clearScanGuardDogStatus: (accountRef) => {
+            const accountId = resolveAccountRefId(accountRef);
+            if (!accountId) return { cleared: 0 };
+            return { cleared: clearScanStatus(accountId, 'guardDogScan') ? 1 : 0 };
+        },
         getBag: (accountRef) => callWorkerApi(resolveAccountRefId(accountRef), 'getBag'),
         getBagSeeds: (accountRef) => callWorkerApi(resolveAccountRefId(accountRef), 'getBagSeeds'),
         useItem: (accountRef, itemId, count) => callWorkerApi(resolveAccountRefId(accountRef), 'useItem', itemId, count),

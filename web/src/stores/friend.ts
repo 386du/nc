@@ -33,6 +33,13 @@ export const useFriendStore = defineStore('friend', () => {
   const knownFriendSettingsLoading = ref(false)
   const knownFriendSettingsSaving = ref(false)
 
+  // 护主犬扫描相关
+  const guardDogGids = ref<BlacklistItem[]>([])
+  const guardDogScanInProgress = ref(false)
+  const guardDogScanProgress = ref<any>(null)
+  const guardDogScanCacheStats = ref<any>(null)
+  const guardDogScanError = ref('')
+
   function buildPlantSummaryFromDetail(lands: any[], summary: any) {
     let stealNum = 0
     let dryNum = 0
@@ -211,6 +218,93 @@ export const useFriendStore = defineStore('friend', () => {
     }
   }
 
+  // ============ 护主犬扫描 ============
+  async function fetchGuardDogGids(accountId: string) {
+    if (!accountId)
+      return
+    try {
+      const res = await api.get('/api/friend-guard-dog-gids', {
+        headers: { 'x-account-id': accountId },
+      })
+      if (res.data.ok) {
+        guardDogGids.value = res.data.data || []
+        guardDogScanCacheStats.value = res.data.cacheStats || null
+      }
+    }
+    catch { /* ignore */ }
+  }
+
+  async function startGuardDogScan(accountId: string, options: { concurrency?: number; minIntervalMs?: number; maxIntervalMs?: number } = {}) {
+    if (!accountId)
+      return { ok: false, reason: 'invalid_account' }
+    guardDogScanError.value = ''
+    guardDogScanInProgress.value = true
+    try {
+      const res = await api.post('/api/friend-guard-dog-gids/scan', options, {
+        headers: { 'x-account-id': accountId },
+      })
+      if (res.data && res.data.ok) {
+        // 后台跑:成功提交后不立即 await,刷新列表即可
+        guardDogScanProgress.value = res.data.result || guardDogScanProgress.value
+        return res.data
+      }
+      guardDogScanError.value = (res.data && res.data.reason) || 'scan_failed'
+      return res.data || { ok: false, reason: 'scan_failed' }
+    }
+    catch (e: any) {
+      guardDogScanError.value = e?.response?.data?.error || e?.message || 'scan_failed'
+      return { ok: false, reason: guardDogScanError.value }
+    }
+    finally {
+      guardDogScanInProgress.value = false
+    }
+  }
+
+  async function fetchGuardDogScanStatus(accountId: string) {
+    if (!accountId)
+      return null
+    try {
+      const res = await api.get('/api/friend-guard-dog-gids/scan-status', {
+        headers: { 'x-account-id': accountId },
+      })
+      if (res.data && res.data.ok) {
+        guardDogScanInProgress.value = !!res.data.inProgress
+        guardDogScanProgress.value = res.data.status || null
+        return res.data
+      }
+      return null
+    }
+    catch { return null }
+  }
+
+  async function clearGuardDogScanStatus(accountId: string) {
+    if (!accountId)
+      return
+    try {
+      await api.post('/api/friend-guard-dog-gids/clear', {}, {
+        headers: { 'x-account-id': accountId },
+      })
+      guardDogScanInProgress.value = false
+      guardDogScanProgress.value = null
+    }
+    catch { /* ignore */ }
+  }
+
+  async function invalidateGuardDogNoCache(accountId: string) {
+    if (!accountId)
+      return 0
+    try {
+      const res = await api.post('/api/friend-guard-dog-gids/invalidate-cache', {}, {
+        headers: { 'x-account-id': accountId },
+      })
+      if (res.data && res.data.ok) {
+        return res.data.cleared || 0
+      }
+    }
+    catch { /* ignore */ }
+    return 0
+  }
+
   async function fetchFriendLands(accountId: string, friendId: string) {
     if (!accountId || !friendId)
       return
@@ -357,6 +451,11 @@ export const useFriendStore = defineStore('friend', () => {
     blacklist,
     guardDogBlacklist,
     guardDogWhitelist,
+    guardDogGids,
+    guardDogScanInProgress,
+    guardDogScanProgress,
+    guardDogScanCacheStats,
+    guardDogScanError,
     interactRecords,
     interactLoading,
     interactError,
@@ -373,6 +472,11 @@ export const useFriendStore = defineStore('friend', () => {
     fetchGuardDogWhitelist,
     toggleGuardDogWhitelist,
     setGuardDogWhitelist,
+    fetchGuardDogGids,
+    startGuardDogScan,
+    fetchGuardDogScanStatus,
+    clearGuardDogScanStatus,
+    invalidateGuardDogNoCache,
     fetchInteractRecords,
     fetchFriendLands,
     operate,
