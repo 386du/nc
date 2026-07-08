@@ -484,7 +484,7 @@ async function startBot(config) {
     let code = inputCode;
     if (String(process.env.FARM_LOGIN_TYPE || '').toLowerCase() === 'yyb') {
         try {
-            const { fetchFarmCodeByOpenid } = require('../services/yyb-login');
+            const { fetchFarmCode } = require('../services/yyb-login');
             const ctx = {
                 endpoint: String(process.env.YYB_ENDPOINT || '').trim(),
                 apiToken: String(process.env.YYB_API_TOKEN || '').trim(),
@@ -494,14 +494,14 @@ async function startBot(config) {
                 throw new Error('应用宝模式环境变量缺失(YYB_ENDPOINT/YYB_API_TOKEN/FARM_OPENID)');
             }
             log('系统', '应用宝模式:正在拉取 farm code...');
-            const r = await fetchFarmCodeByOpenid(ctx, ctx.openid);
+            const r = await fetchFarmCode(ctx);
             if (!r || !r.ok || !r.code) {
-                throw new Error(`拉取 farm code 失败: ${  (r && r.error) || 'unknown'}`);
+                throw new Error(`拉取 farm code 失败: ${(r && r.error) || 'unknown'}`);
             }
             code = r.code;
             log('系统', `应用宝 farm code 拉取成功,长度 ${code.length}`);
         } catch (e) {
-            log('系统', `应用宝拉取 code 失败: ${  e && e.message ? e.message : String(e)}`);
+            log('系统', `应用宝拉取 code 失败: ${e && e.message ? e.message : String(e)}`);
             isRunning = false;
             return;
         }

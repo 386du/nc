@@ -54,15 +54,20 @@ function createWorkerManager(options) {
 
     function createThreadWorker(account, options) {
         const yybEnv = buildYybEnv(account);
-        const worker = new WorkerThread(workerScriptPath, {
+        const workerOptions = {
             workerData: {
                 accountId: String(account.id || ''),
                 channel: 'thread',
                 startupMode: (options && options.codeRefresh) ? 'code_refresh' : 'start',
             },
             env: { ...processRef.env, ...yybEnv },
-        });
+        };
+        // 当从源码运行(tsx)时,worker 也需要用 tsx 加载
+        if (workerScriptPath.endsWith('.ts')) {
+            workerOptions.execArgv = ['--require', 'tsx/cjs'];
+        }
         // 与 child_process 保持同形接口
+        const worker = new WorkerThread(workerScriptPath, workerOptions);
         worker.send = (payload) => worker.postMessage(payload);
         worker.kill = () => worker.terminate();
         return worker;
@@ -78,10 +83,15 @@ function createWorkerManager(options) {
                 env: { ...processRef.env, FARM_WORKER: '1', FARM_ACCOUNT_ID: String(account.id || ''), FARM_STARTUP_MODE: (options && options.codeRefresh) ? 'code_refresh' : 'start', ...yybEnv },
             });
         }
-        return fork(workerScriptPath, [], {
+        const forkOptions = {
             stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
             env: { ...processRef.env, FARM_ACCOUNT_ID: String(account.id || ''), FARM_STARTUP_MODE: (options && options.codeRefresh) ? 'code_refresh' : 'start', ...yybEnv },
-        });
+        };
+        // 当从源码运行(tsx)时,worker 也需要用 tsx 加载
+        if (workerScriptPath.endsWith('.ts')) {
+            forkOptions.execArgv = ['--require', 'tsx/cjs'];
+        }
+        return fork(workerScriptPath, [], forkOptions);
     }
 
     function createWorkerProcess(account, options) {

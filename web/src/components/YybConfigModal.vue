@@ -112,7 +112,6 @@ async function handleSave() {
       autoReconnect: form.value.autoReconnect,
       accounts: deduped,
     })
-    toast.success('应用宝配置已保存')
     emit('close')
   }
   catch (e: any) {

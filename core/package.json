@@ -5,11 +5,12 @@
   "license": "ISC",
   "author": "",
   "type": "commonjs",
-  "main": "client.js",
-  "bin": "client.js",
+  "main": "client.ts",
+  "bin": "client.ts",
   "scripts": {
-    "start": "node client.js",
-    "dev": "node client.js",
+    "start": "tsx client.ts",
+    "dev": "tsx client.ts",
+    "build:tsc": "tsc -p tsconfig.json",
     "build:release": "pkg . --no-bytecode --targets node18-win-x64,node18-linux-x64,node18-macos-x64,node18-macos-arm64 --out-path dist",
     "build:win": "pkg . --no-bytecode --targets node18-win-x64 --out-path dist",
     "build:linux": "pkg . --no-bytecode --targets node18-linux-x64 --out-path dist",
@@ -35,7 +36,9 @@
     "@antfu/eslint-config": "^7.4.3",
     "@types/node": "^24.10.1",
     "eslint": "^9.39.1",
-    "pkg": "^5.8.1"
+    "pkg": "^5.8.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
   },
   "pkg": {
     "assets": [

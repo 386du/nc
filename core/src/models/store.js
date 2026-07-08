@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { getDataFile, ensureDataDir } = require('../config/runtime-paths');
 const { readTextFile, readJsonFile, writeJsonFileAtomic } = require('../services/json-db');
+const yybConfig = require('./store/yyb-config');
 
 const STORE_FILE = getDataFile('store.json');
 const ACCOUNTS_FILE = getDataFile('accounts.json');
@@ -645,7 +646,7 @@ function loadGlobalConfig() {
                 globalConfig.userYybConfigs = {};
                 for (const [u, cfg] of Object.entries(data.userYybConfigs)) {
                     if (u && cfg) {
-                        globalConfig.userYybConfigs[u] = normalizeYybConfig(cfg);
+                        globalConfig.userYybConfigs[u] = yybConfig.normalizeYybConfig(cfg);
                     }
                 }
             }
@@ -692,7 +693,7 @@ function sanitizeGlobalConfigBeforeSave() {
     for (const [username, cfg] of Object.entries(userYybs)) {
         const u = String(username || '').trim();
         if (!u) continue;
-        nextYybs[u] = normalizeYybConfig(cfg);
+        nextYybs[u] = yybConfig.normalizeYybConfig(cfg);
     }
     globalConfig.userYybConfigs = nextYybs;
 }
@@ -1468,59 +1469,18 @@ function getActivityStatus() {
     };
 }
 
-const DEFAULT_YYB_CONFIG = {
-    enabled: false,
-    endpoint: '',
-    accounts: [],
-    autoReconnect: true,
-    reconnectIntervalMinutes: 0,
-};
-
-function normalizeYybAccountEntry(input) {
-    if (!input || typeof input !== 'object') return null;
-    const openid = String(input.openid || '').trim();
-    if (!openid) return null;
-    return {
-        openid,
-        apiToken: String(input.apiToken || '').trim(),
-        name: input.name ? String(input.name).trim() : '',
-    };
-}
-
-function normalizeYybConfig(input) {
-    const src = (input && typeof input === 'object') ? input : {};
-    const accounts = Array.isArray(src.accounts)
-        ? src.accounts.map(normalizeYybAccountEntry).filter(Boolean)
-        : [];
-    return {
-        enabled: !!src.enabled,
-        endpoint: String(src.endpoint || '').trim(),
-        accounts,
-        autoReconnect: src.autoReconnect !== false,
-        reconnectIntervalMinutes: Math.max(0, Math.min(1440, Number(src.reconnectIntervalMinutes) || 0)),
-    };
-}
+const DEFAULT_YYB_CONFIG = yybConfig.DEFAULT_YYB_CONFIG;
 
 function getYybConfig(username) {
-    if (!username) return { ...DEFAULT_YYB_CONFIG };
-    const cfg = globalConfig.userYybConfigs && globalConfig.userYybConfigs[username];
-    return cfg ? normalizeYybConfig(cfg) : { ...DEFAULT_YYB_CONFIG };
+    return yybConfig.getYybConfig(globalConfig, username);
 }
 
 function setYybConfig(cfg, username) {
-    if (!username) return { ...DEFAULT_YYB_CONFIG };
-    const normalized = normalizeYybConfig(cfg);
-    if (!globalConfig.userYybConfigs) globalConfig.userYybConfigs = {};
-    globalConfig.userYybConfigs[username] = normalized;
-    saveGlobalConfig();
-    return getYybConfig(username);
+    return yybConfig.setYybConfig(globalConfig, cfg, username, saveGlobalConfig);
 }
 
 function deleteUserYybConfig(username) {
-    if (globalConfig.userYybConfigs && globalConfig.userYybConfigs[username]) {
-        delete globalConfig.userYybConfigs[username];
-        saveGlobalConfig();
-    }
+    return yybConfig.deleteUserYybConfig(globalConfig, username, saveGlobalConfig);
 }
 
 const DEFAULT_WX_CONFIG = {

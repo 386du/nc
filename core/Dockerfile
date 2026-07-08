@@ -28,6 +28,8 @@ COPY core/package.json ./core/
 COPY web/package.json ./web/
 
 RUN pnpm -C core install --prod --frozen-lockfile
+# tsx 是 devDependency,运行时也需要,这里改用 --production=false 装运行时所需 tsx
+RUN pnpm -C core install --frozen-lockfile
 
 # ==========================================
 
@@ -47,6 +49,9 @@ COPY --from=prod-deps /app/node_modules ../node_modules/
 COPY --from=prod-deps /app/core/node_modules ./node_modules/
 COPY --from=prod-deps /app/package.json ../package.json
 
+# 装 tsx(devDependency)用于 .ts 加载
+RUN pnpm add -C . tsx@4.19.2 --save-dev --frozen-lockfile || npm install tsx@4.19.2 --save-dev
+
 COPY --from=builder /app/core ./
 COPY --from=builder /app/web/dist ../web/dist
 
@@ -59,4 +64,4 @@ EXPOSE 3338
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -q --spider http://localhost:3338/api/status || exit 1
 
-CMD ["node", "client.js"]
+CMD ["npx", "tsx", "client.ts"]

@@ -10,7 +10,7 @@ const { createDataProvider } = require('./data-provider')
 const { createReloginReminderService } = require('./relogin-reminder')
 const { createRuntimeState } = require('./runtime-state')
 const { createWorkerManager } = require('./worker-manager')
-const { createYybReloginService } = require('../services/yyb-relogin')
+const { createYybReloginService } = require('./yyb-relogin')
 
 const OPERATION_KEYS = ['harvest', 'water', 'weed', 'bug', 'fertilize', 'plant', 'steal', 'helpWater', 'helpWeed', 'helpBug', 'taskClaim', 'sell', 'upgrade']
 
@@ -91,11 +91,16 @@ function createRuntimeEngine(options = {}) {
   workerControls.restartWorker = restartWorker
   workerControls.refreshWorkerCode = refreshWorkerCode
 
-  // 应用宝主进程自动重连服务(监听 kickout/ws_error → 拉新 code → refreshWorkerCode)
+  // 应用宝主进程自动重连服务(监听 kickout/ws_error → 拉新 code → addOrUpdateAccount → restartWorker(codeRefresh))
   const yybReloginService = createYybReloginService({
-    workers,
-    refreshWorkerCode,
-    runtimeEvents,
+    store,
+    log,
+    addAccountLog,
+    getAccounts: store.getAccounts,
+    addOrUpdateAccount: store.addOrUpdateAccount,
+    isAccountRunning: (accountId) => !!workers[accountId],
+    restartWorker,
+    startWorker,
   })
 
   const dataProvider = createDataProvider({
@@ -124,6 +129,21 @@ function createRuntimeEngine(options = {}) {
   runtimeEvents.on('account_log', (entry) => {
     if (onAccountLog) onAccountLog(entry)
   })
+
+  // 应用宝主进程重连触发:
+  // 监听 worker 上报的 kickout / ws_error 事件,自动拉新 code → addOrUpdateAccount → restartWorker(codeRefresh)
+  runtimeEvents.on('kickout', (evt) => {
+    if (!evt) return;
+    const accountId = String(evt.accountId || '');
+    if (!accountId) return;
+    yybReloginService.handleAccountRelogin(accountId, evt.reason || 'kickout').catch(() => {});
+  });
+  runtimeEvents.on('ws_error', (evt) => {
+    if (!evt) return;
+    const accountId = String(evt.accountId || '');
+    if (!accountId) return;
+    yybReloginService.handleAccountRelogin(accountId, 'ws_error').catch(() => {});
+  });
 
   function broadcastConfigToWorkers(targetAccountId = '') {
     const targetId = String(targetAccountId || '').trim()

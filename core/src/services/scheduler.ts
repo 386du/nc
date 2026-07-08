@@ -1,19 +1,79 @@
+export {};
 const { createModuleLogger } = require('./logger');
 
 const schedulerLogger = createModuleLogger('scheduler');
-const schedulerRegistry = new Map(); // namespace -> { createdAt, timers: Map<taskName, TaskMeta> }
 
-function toDelayMs(value, fallbackMs = 0) {
+interface TaskMeta {
+    kind: 'timeout' | 'interval';
+    delayMs: number;
+    createdAt: number;
+    nextRunAt: number;
+    lastRunAt: number;
+    runCount: number;
+    running: boolean;
+    preventOverlap: boolean;
+    handle: any;
+}
+
+interface NamespaceStore {
+    namespace: string;
+    createdAt: number;
+    timers: Map<string, TaskMeta>;
+}
+
+interface SetIntervalOptions {
+    preventOverlap?: boolean;
+    runImmediately?: boolean;
+}
+
+interface SchedulerInstance {
+    setTimeoutTask: (taskName: string, delayMs: number, taskFn: () => any) => any;
+    setIntervalTask: (taskName: string, intervalMs: number, taskFn: () => any, options?: SetIntervalOptions) => any;
+    clear: (taskName: string) => boolean;
+    clearAll: () => void;
+    has: (taskName: string) => boolean;
+    getTaskNames: () => string[];
+    getSnapshot: () => SchedulerSnapshot;
+}
+
+interface TaskSnapshot {
+    name: string;
+    kind: string;
+    delayMs: number;
+    createdAt: number;
+    nextRunAt: number;
+    lastRunAt: number;
+    runCount: number;
+    running: boolean;
+    preventOverlap: boolean;
+}
+
+interface SchedulerSnapshot {
+    namespace: string;
+    createdAt: number;
+    taskCount: number;
+    tasks: TaskSnapshot[];
+}
+
+interface RegistrySnapshot {
+    generatedAt: number;
+    schedulerCount: number;
+    schedulers: SchedulerSnapshot[];
+}
+
+const schedulerRegistry = new Map<string, NamespaceStore>();
+
+function toDelayMs(value: any, fallbackMs: number = 0): number {
     const n = Number(value);
     if (!Number.isFinite(n)) return Math.max(0, fallbackMs | 0);
     return Math.max(0, Math.floor(n));
 }
 
-function ensureNamespaceStore(namespace) {
+function ensureNamespaceStore(namespace: string): NamespaceStore {
     const key = String(namespace || 'default');
     const existed = schedulerRegistry.get(key);
     if (existed) return existed;
-    const created = {
+    const created: NamespaceStore = {
         namespace: key,
         createdAt: Date.now(),
         timers: new Map(),
@@ -22,8 +82,8 @@ function ensureNamespaceStore(namespace) {
     return created;
 }
 
-function normalizeTaskSnapshot(taskName, meta) {
-    const item = meta || {};
+function normalizeTaskSnapshot(taskName: string, meta: TaskMeta): TaskSnapshot {
+    const item = meta || ({} as TaskMeta);
     return {
         name: String(taskName || ''),
         kind: item.kind || 'timeout',
@@ -37,12 +97,12 @@ function normalizeTaskSnapshot(taskName, meta) {
     };
 }
 
-function getSchedulerRegistrySnapshot(namespace = '') {
+function getSchedulerRegistrySnapshot(namespace: string = ''): RegistrySnapshot {
     const ns = String(namespace || '').trim();
-    const list = [];
+    const list: SchedulerSnapshot[] = [];
     for (const [name, store] of schedulerRegistry.entries()) {
         if (ns && name !== ns) continue;
-        const tasks = [];
+        const tasks: TaskSnapshot[] = [];
         for (const [taskName, meta] of store.timers.entries()) {
             tasks.push(normalizeTaskSnapshot(taskName, meta));
         }
@@ -62,12 +122,12 @@ function getSchedulerRegistrySnapshot(namespace = '') {
     };
 }
 
-function createScheduler(namespace = 'default') {
+function createScheduler(namespace: string = 'default'): SchedulerInstance {
     const name = String(namespace || 'default');
     const store = ensureNamespaceStore(name);
     const timers = store.timers;
 
-    function clear(taskName) {
+    function clear(taskName: string): boolean {
         const key = String(taskName || '');
         const entry = timers.get(key);
         if (!entry) return false;
@@ -80,18 +140,18 @@ function createScheduler(namespace = 'default') {
         return true;
     }
 
-    function clearAll() {
+    function clearAll(): void {
         const keys = Array.from(timers.keys());
         for (const key of keys) clear(key);
     }
 
-    function setTimeoutTask(taskName, delayMs, taskFn) {
+    function setTimeoutTask(taskName: string, delayMs: number, taskFn: () => any): any {
         const key = String(taskName || '');
         if (!key) throw new Error('taskName 不能为空');
         if (typeof taskFn !== 'function') throw new Error(`timeout 任务 ${key} 缺少回调函数`);
         clear(key);
         const delay = toDelayMs(delayMs, 0);
-        const entry = {
+        const entry: TaskMeta = {
             kind: 'timeout',
             delayMs: delay,
             createdAt: Date.now(),
@@ -110,7 +170,7 @@ function createScheduler(namespace = 'default') {
             current.runCount += 1;
             try {
                 await taskFn();
-            } catch (e) {
+            } catch (e: any) {
                 schedulerLogger.warn(`[${name}] timeout 任务执行失败: ${key}`, {
                     module: 'scheduler',
                     scope: name,
@@ -118,7 +178,6 @@ function createScheduler(namespace = 'default') {
                     error: e && e.message ? e.message : String(e),
                 });
             } finally {
-                // 只删除自己，避免删掉 taskFn 执行期间注册的新 entry
                 const after = timers.get(key);
                 if (after && after.handle === handle) {
                     timers.delete(key);
@@ -130,7 +189,7 @@ function createScheduler(namespace = 'default') {
         return handle;
     }
 
-    function setIntervalTask(taskName, intervalMs, taskFn, options = {}) {
+    function setIntervalTask(taskName: string, intervalMs: number, taskFn: () => any, options: SetIntervalOptions = {}): any {
         const key = String(taskName || '');
         if (!key) throw new Error('taskName 不能为空');
         if (typeof taskFn !== 'function') throw new Error(`interval 任务 ${key} 缺少回调函数`);
@@ -139,7 +198,7 @@ function createScheduler(namespace = 'default') {
         const delay = Math.max(1, toDelayMs(intervalMs, 1000));
         const preventOverlap = options.preventOverlap !== false;
         const runImmediately = !!options.runImmediately;
-        const entry = {
+        const entry: TaskMeta = {
             kind: 'interval',
             delayMs: delay,
             createdAt: Date.now(),
@@ -151,7 +210,7 @@ function createScheduler(namespace = 'default') {
             handle: null,
         };
 
-        const runner = async () => {
+        const runner = async (): Promise<void> => {
             const current = timers.get(key);
             if (!current) return;
             if (preventOverlap && current.running) return;
@@ -160,7 +219,7 @@ function createScheduler(namespace = 'default') {
             current.runCount += 1;
             try {
                 await taskFn();
-            } catch (e) {
+            } catch (e: any) {
                 schedulerLogger.warn(`[${name}] interval 任务执行失败: ${key}`, {
                     module: 'scheduler',
                     scope: name,
@@ -186,15 +245,15 @@ function createScheduler(namespace = 'default') {
         return handle;
     }
 
-    function has(taskName) {
+    function has(taskName: string): boolean {
         return timers.has(String(taskName || ''));
     }
 
-    function getTaskNames() {
+    function getTaskNames(): string[] {
         return Array.from(timers.keys());
     }
 
-    function getSnapshot() {
+    function getSnapshot(): SchedulerSnapshot {
         const one = getSchedulerRegistrySnapshot(name);
         return one.schedulers[0] || { namespace: name, createdAt: Date.now(), taskCount: 0, tasks: [] };
     }

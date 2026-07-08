@@ -1,3 +1,4 @@
+export {};
 /**
  * 应用宝会话续期服务 (Worker 内部使用)
  *
@@ -13,22 +14,28 @@
  * 用法:仅在 process.env.FARM_LOGIN_TYPE === 'yyb' 时启用,启动后 2.5 分钟一次。
  */
 
-'use strict';
-
-const { fetchFarmCodeByOpenid } = require('./yyb-login');
+const { fetchFarmCode } = require('./yyb-login');
+const { createScheduler } = require('./scheduler');
 const { createModuleLogger } = require('./logger');
 
 const logger = createModuleLogger('yyb-refresh');
-const log = (msg, meta) => { try { logger.info(msg, meta || {}); } catch (e) {} };
-const logWarn = (msg, meta) => { try { logger.warn(msg, meta || {}); } catch (e) {} };
+const log = (msg: string, meta?: any) => { try { logger.info(msg, meta || {}); } catch (e) {} };
+const logWarn = (msg: string, meta?: any) => { try { logger.warn(msg, meta || {}); } catch (e) {} };
 
 const DEFAULT_REFRESH_MS = 2.5 * 60 * 1000; // 默认 2.5 分钟(给 3 分钟 TTL 留缓冲)
+const TASK_NAME = 'yyb_session_renew';
 
-let activeTimer = null;
+const renewScheduler = createScheduler('yyb_refresh');
 let activeAccountName = '';
 let activeIntervalMs = DEFAULT_REFRESH_MS;
 
-function readYybContext() {
+interface YybContext {
+    endpoint: string;
+    openid: string;
+    apiToken: string;
+}
+
+function readYybContext(): YybContext | null {
     if (String(process.env.FARM_LOGIN_TYPE || '').toLowerCase() !== 'yyb') return null;
     const endpoint = String(process.env.YYB_ENDPOINT || '').trim();
     const openid = String(process.env.FARM_OPENID || '').trim();
@@ -37,10 +44,10 @@ function readYybContext() {
     return { endpoint, openid, apiToken };
 }
 
-async function refreshAndReconnect(accountName) {
+async function refreshAndReconnect(accountName: string): Promise<void> {
     const ctx = readYybContext();
     if (!ctx) return;
-    let reconnectFn = null;
+    let reconnectFn: ((code: string) => any) | null = null;
     try {
         // 延迟 require 避免循环依赖
         const network = require('../utils/network');
@@ -52,8 +59,13 @@ async function refreshAndReconnect(accountName) {
 
     let result;
     try {
-        result = await fetchFarmCodeByOpenid(ctx, ctx.openid);
-    } catch (e) {
+        result = await fetchFarmCode({
+            endpoint: ctx.endpoint,
+            apiToken: ctx.apiToken,
+            openid: ctx.openid,
+            forceRefresh: true,
+        });
+    } catch (e: any) {
         logWarn('YYB 续期 API 调用异常', {
             module: 'yyb', event: 'session_renew_error', error: e && e.message ? e.message : String(e),
         });
@@ -71,37 +83,36 @@ async function refreshAndReconnect(accountName) {
             module: 'yyb', event: 'session_renew_ok', accountName,
         });
         reconnectFn(result.code);
-    } catch (e) {
+    } catch (e: any) {
         logWarn('YYB 触发重连失败', {
             module: 'yyb', event: 'session_renew_reconnect_error', error: e && e.message ? e.message : String(e),
         });
     }
 }
 
-function startYybSessionRenewer(accountName, intervalMs) {
+function startYybSessionRenewer(accountName: string, intervalMs?: number): boolean {
     stopYybSessionRenewer();
     if (!readYybContext()) return false;
     const ms = Number(intervalMs) > 0 ? Number(intervalMs) : DEFAULT_REFRESH_MS;
     activeAccountName = String(accountName || '');
     activeIntervalMs = ms;
-    activeTimer = setInterval(() => { refreshAndReconnect(activeAccountName); }, ms);
+    renewScheduler.setIntervalTask(TASK_NAME, ms, () => refreshAndReconnect(activeAccountName), {
+        preventOverlap: true,
+    });
     log('YYB 会话续期已启动', {
         module: 'yyb', event: 'session_renew_started', accountName: activeAccountName, intervalMs: ms,
     });
     return true;
 }
 
-function stopYybSessionRenewer() {
-    if (activeTimer) {
-        clearInterval(activeTimer);
-        activeTimer = null;
-    }
+function stopYybSessionRenewer(): void {
+    renewScheduler.clear(TASK_NAME);
     activeAccountName = '';
 }
 
 function status() {
     return {
-        running: !!activeTimer,
+        running: renewScheduler.has(TASK_NAME),
         accountName: activeAccountName,
         intervalMs: activeIntervalMs,
         enabled: !!readYybContext(),

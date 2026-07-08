@@ -26,7 +26,7 @@ export interface YybConfig {
 }
 
 const defaultConfig: YybConfig = {
-  enabled: true,
+  enabled: false,
   endpoint: 'http://211.154.25.123:28999/api/open/v1/farm/code',
   reconnectIntervalMinutes: 0,
   autoReconnect: true,
@@ -118,9 +118,8 @@ export const useYybLoginStore = defineStore('yyb-login', () => {
       const entry = rawConfig.value.accounts.find((a: any) => a.openid === openid)
       const name = preferName?.trim() || (entry && entry.name ? entry.name : '') || `应用宝_${openid.slice(-6)}`
 
-      // 优先按 openid 匹配,其次按 name
+      // 优先按 openid 匹配
       const existing = (accountStore.accounts || []).find((a: any) => String(a.openid) === String(openid))
-        || (accountStore.accounts || []).find((a: any) => String(a.name) === String(name))
 
       try {
         if (existing) {
@@ -145,7 +144,6 @@ export const useYybLoginStore = defineStore('yyb-login', () => {
         // 刷新账号列表,并启动账号
         await accountStore.fetchAccounts()
         const updated = (accountStore.accounts || []).find((a: any) => String(a.openid) === String(openid))
-          || (accountStore.accounts || []).find((a: any) => String(a.name) === String(name))
         if (updated && !updated.running) {
           try { await accountStore.startAccount(String(updated.id)) } catch { /* ignore */ }
         }
