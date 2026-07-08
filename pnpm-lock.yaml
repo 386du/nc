@@ -47,6 +47,9 @@ importers:
       socket.io:
         specifier: ^4.8.3
         version: 4.8.3
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
       winston:
         specifier: ^3.18.3
         version: 3.19.0
@@ -66,6 +69,9 @@ importers:
       pkg:
         specifier: ^5.8.1
         version: 5.8.1
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
 
   web:
     dependencies:
@@ -6998,7 +7004,6 @@ snapshots:
       get-tsconfig: 4.13.6
     optionalDependencies:
       fsevents: 2.3.3
-    optional: true
 
   tunnel-agent@0.6.0:
     dependencies:
